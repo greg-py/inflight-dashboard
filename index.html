@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>In-flight</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛫</text></svg>" />
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --surface: #ffffff;
+    --border: #e3e3df;
+    --text: #1a1a18;
+    --text-2: #6b6b66;
+    --text-3: #9c9c96;
+    --red: #a32d2d;
+    --red-bg: #fcebeb;
+    --amber: #854f0b;
+    --amber-bg: #faeeda;
+    --green: #3b6d11;
+    --blue: #185fa5;
+    --blue-bg: #e6f1fb;
+    --gray-chip-bg: #f1efe8;
+    --gray-chip: #444441;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a;
+      --surface: #262624;
+      --border: #3a3a37;
+      --text: #ececea;
+      --text-2: #a8a8a2;
+      --text-3: #77776f;
+      --red: #f09595;
+      --red-bg: #46201f;
+      --amber: #fac775;
+      --amber-bg: #3d2c12;
+      --green: #97c459;
+      --blue: #85b7eb;
+      --blue-bg: #16324c;
+      --gray-chip-bg: #37372f;
+      --gray-chip: #d3d1c7;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+  }
+  .topbar h1 { font-size: 15px; font-weight: 600; margin: 0; }
+  #refreshed { font-size: 12px; color: var(--text-3); }
+  .banner {
+    margin: 12px 20px 0; padding: 8px 12px; border-radius: 8px;
+    background: var(--amber-bg); color: var(--amber); font-size: 12.5px;
+  }
+  .section-head { padding: 14px 20px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+  .section-head.needs_you { color: var(--red); }
+  .section-head.waiting { color: var(--amber); }
+  .section-head.no_pr { color: var(--text-3); }
+  .row {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 20px; border-bottom: 1px solid var(--border);
+  }
+  .row:last-child { border-bottom: none; }
+  .key { font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; min-width: 76px; padding-top: 1px; }
+  .key a { color: var(--text-2); text-decoration: none; }
+  .key a:hover { text-decoration: underline; }
+  .body { flex: 1; min-width: 0; }
+  .summary { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .subtask-of { color: var(--text-3); font-size: 12px; }
+  .pr-line { font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
+  .pr-line a { font-family: ui-monospace, "SF Mono", monospace; color: var(--blue); text-decoration: none; }
+  .pr-line a:hover { text-decoration: underline; }
+  .r-bad { color: var(--red); }
+  .r-good { color: var(--green); }
+  .chip {
+    font-size: 11px; padding: 2px 9px; border-radius: 10px; white-space: nowrap; margin-top: 1px;
+    background: var(--gray-chip-bg); color: var(--gray-chip);
+  }
+  .chip.indeterminate { background: var(--blue-bg); color: var(--blue); }
+  .empty { padding: 8px 20px 12px; font-size: 12.5px; color: var(--text-3); }
+  #error { margin: 12px 20px; color: var(--red); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="panel">
+    <div class="topbar">
+      <h1>In-flight</h1>
+      <span id="refreshed">loading…</span>
+    </div>
+    <div id="banners"></div>
+    <div id="error" hidden></div>
+    <div id="content"></div>
+  </div>
+</main>
+<script>
+  const REFRESH_MS = 120_000;
+  const SECTIONS = [
+    { id: "needs_you", label: "Needs you" },
+    { id: "waiting", label: "Waiting on others" },
+    { id: "no_pr", label: "No open PR" },
+  ];
+  const BAD_REASONS = ["changes requested", "CI failing", "conflicts with base"];
+  const GOOD_REASONS = ["CI green", "approved · ready to merge", "approved"];
+
+  let lastFetched = null;
+
+  const esc = (s) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+    );
+
+  const reasonSpan = (reason) => {
+    const cls = BAD_REASONS.includes(reason) ? "r-bad" : GOOD_REASONS.includes(reason) ? "r-good" : "";
+    return `<span class="${cls}">${esc(reason)}</span>`;
+  };
+
+  const prLine = (pr) =>
+    `<div class="pr-line"><a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(
+      pr.repo,
+    )}#${pr.number}</a> · ${pr.reasons.map(reasonSpan).join(" · ")}</div>`;
+
+  const rowHtml = (item) => {
+    const key = item.key
+      ? `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.key)}</a>`
+      : "—";
+    const subtask =
+      item.isSubtask && item.parentKey
+        ? ` <span class="subtask-of">· subtask of ${esc(item.parentKey)}</span>`
+        : "";
+    const prLines = item.prs.map(prLine).join("");
+    const noPr =
+      item.key && item.prs.length === 0 ? `<div class="pr-line">no open PR</div>` : "";
+    return `<div class="row">
+      <span class="key">${key}</span>
+      <div class="body"><div class="summary" title="${esc(item.summary)}">${esc(
+        item.summary,
+      )}${subtask}</div>${prLines}${noPr}</div>
+      <span class="chip ${esc(item.statusCategory)}">${esc(item.status)}</span>
+    </div>`;
+  };
+
+  const render = (data) => {
+    const banners = [];
+    for (const [name, source] of Object.entries(data.sources)) {
+      if (!source.ok) banners.push(`<div class="banner">${esc(name)}: ${esc(source.error)}</div>`);
+    }
+    document.getElementById("banners").innerHTML = banners.join("");
+    const parts = [];
+    for (const section of SECTIONS) {
+      const items = data.items.filter((item) => item.section === section.id);
+      parts.push(
+        `<div class="section-head ${section.id}">${section.label} · ${items.length}</div>`,
+      );
+      parts.push(items.length ? items.map(rowHtml).join("") : `<div class="empty">nothing here</div>`);
+    }
+    document.getElementById("content").innerHTML = parts.join("");
+  };
+
+  const showRefreshed = () => {
+    if (!lastFetched) return;
+    const mins = Math.round((Date.now() - lastFetched) / 60_000);
+    document.getElementById("refreshed").textContent =
+      mins < 1 ? "refreshed just now" : `refreshed ${mins} min ago`;
+  };
+
+  const refresh = async () => {
+    const errorEl = document.getElementById("error");
+    try {
+      const res = await fetch("/api/data");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      render(await res.json());
+      lastFetched = Date.now();
+      errorEl.hidden = true;
+    } catch (err) {
+      errorEl.textContent = `Refresh failed: ${err.message}`;
+      errorEl.hidden = false;
+    }
+    showRefreshed();
+  };
+
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+  setInterval(showRefreshed, 15_000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && lastFetched && Date.now() - lastFetched > 30_000) {
+      refresh();
+    }
+  });
+</script>
+</body>
+</html>

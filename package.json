@@ -1,0 +1,14 @@
+{
+  "name": "inflight-dashboard",
+  "version": "1.0.0",
+  "description": "Single-page local dashboard for in-flight Jira tickets and GitHub PRs",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  }
+}
