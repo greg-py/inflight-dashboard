@@ -439,6 +439,55 @@ test("mapReviewPr falls back to unknown when the author is missing", () => {
   assert.equal(mapReviewPr(node, Date.parse("2026-08-26T00:00:00Z")).author, "unknown");
 });
 
+test("buildItems references parent PRs on riding subtasks without attaching them", () => {
+  const parentPr = {
+    number: 7364,
+    url: "https://github.com/PerformYard/PerformYard/pull/7364",
+    title: "PY-13548: calendar integration",
+    headRefName: "PY-13548-calendar",
+    repo: "PerformYard/PerformYard",
+    updatedAt: "2026-08-25T12:00:00Z",
+    bucket: "waiting",
+    defect: false,
+    reasons: ["awaiting review · 1d"],
+  };
+  const subtask = jiraIssue("PY-14156", {
+    issuetype: { subtask: true },
+    parent: { key: "PY-13548" },
+    status: { name: "In Progress", statusCategory: { key: "indeterminate" } },
+  });
+  const items = buildItems([jiraIssue("PY-13548"), subtask], [parentPr]);
+  const sub = items.find((item) => item.key === "PY-14156");
+  assert.equal(sub.prs.length, 0);
+  assert.deepEqual(sub.parentPrs, [
+    { number: 7364, url: "https://github.com/PerformYard/PerformYard/pull/7364", repo: "PerformYard/PerformYard" },
+  ]);
+  assert.equal(sub.section, "no_pr");
+  assert.equal(sub.launch.prompt, "/implement-ticket PY-14156");
+  assert.equal(sub.launch.repo, "PerformYard/PerformYard");
+  const parent = items.find((item) => item.key === "PY-13548");
+  assert.equal(parent.prs.length, 1);
+  assert.equal(parent.parentPrs, undefined);
+});
+
+test("buildItems: no parent-PR reference when the subtask has its own PR or parent has none", () => {
+  const ownPr = {
+    number: 7500,
+    url: "u",
+    title: "PY-14156 own PR",
+    headRefName: "PY-14156-own",
+    repo: "PerformYard/PerformYard",
+    updatedAt: "2026-08-25T12:00:00Z",
+    bucket: "waiting",
+    defect: false,
+    reasons: ["awaiting review · 0d"],
+  };
+  const subtask = () =>
+    jiraIssue("PY-14156", { issuetype: { subtask: true }, parent: { key: "PY-13548" } });
+  assert.equal(buildItems([subtask()], [ownPr])[0].parentPrs, undefined);
+  assert.equal(buildItems([subtask()], [])[0].parentPrs, undefined);
+});
+
 test("buildItems keeps subtask parent annotation", () => {
   const items = buildItems(
     [

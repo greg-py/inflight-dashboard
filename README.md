@@ -15,7 +15,11 @@ who's blocked.
   with no open PR, or QA-held tickets (`Ready To Test`, `In Testing`) whose PR is
   approved and green — QA holds the merge gate there, so the PR shows
   "approved · awaiting QA". PR defects always outrank the QA hold.
-- **No open PR** — assigned tickets that haven't started (or whose PRs already merged).
+- **In development** — assigned tickets with no PR of their own: not started, in progress,
+  or already merged. A subtask being worked on its parent ticket's branch (the standard
+  subtask workflow) shows "on parent PY-XXXX · #NNNN" linking to the parent's PR — the
+  reference is display-only, so the branch's CI/review signals appear once, on the
+  parent's row.
 - **Reviews requested of you** — other people's open PRs where your review is requested,
   oldest first. A request where you already have a review on record is marked
   "re-requested" and launches `/verify-review` instead of `/deep-review`.

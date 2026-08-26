@@ -191,7 +191,11 @@ export const launchForReview = (pr) => {
 
 export const launchForTicket = (item) => {
   if (item.prs.length > 0 || !/^PY-\d+$/.test(item.key ?? "")) return null;
-  return { label: "implement", prompt: `/implement-ticket ${item.key}`, repo: null };
+  return {
+    label: "implement",
+    prompt: `/implement-ticket ${item.key}`,
+    repo: item.parentPrs?.[0]?.repo ?? null,
+  };
 };
 
 export const sectionFor = (item) => {
@@ -222,10 +226,14 @@ export const buildItems = (jiraIssues, prs) => {
     prs: [],
   }));
   const byKey = new Map(items.map((item) => [item.key, item]));
+  const prsByKey = new Map();
   for (const pr of prs) {
-    const matched = extractTicketKeys(pr)
-      .map((key) => byKey.get(key))
-      .filter(Boolean);
+    const keys = extractTicketKeys(pr);
+    for (const key of keys) {
+      if (!prsByKey.has(key)) prsByKey.set(key, []);
+      prsByKey.get(key).push(pr);
+    }
+    const matched = keys.map((key) => byKey.get(key)).filter(Boolean);
     if (matched.length > 0) {
       for (const item of matched) item.prs.push(pr);
     } else {
@@ -252,6 +260,15 @@ export const buildItems = (jiraIssues, prs) => {
     }));
   };
   for (const item of items) {
+    // A subtask with no PR of its own usually rides the parent ticket's
+    // branch/PR — reference those PRs for display, but never attach them:
+    // their CI/review/conflict signals belong to the parent's row only.
+    if (item.isSubtask && item.prs.length === 0 && item.parentKey) {
+      const parentPrs = prsByKey.get(item.parentKey) ?? [];
+      if (parentPrs.length > 0) {
+        item.parentPrs = parentPrs.map((pr) => ({ number: pr.number, url: pr.url, repo: pr.repo }));
+      }
+    }
     item.section = sectionFor(item);
     const statusKey = item.status.toLowerCase();
     if (item.section === "waiting" && CONFIG.qaHoldStatuses.includes(statusKey)) {
