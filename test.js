@@ -11,7 +11,8 @@ import {
   launchForPr,
   launchForReview,
   launchForTicket,
-  buildTerminalCommand,
+  buildLaunchCommand,
+  slugFor,
   changesAddressed,
 } from "./server.js";
 
@@ -344,15 +345,35 @@ test("launchForReview and launchForTicket build their prompts", () => {
   assert.equal(launchForTicket({ key: "PY-1 && evil", prs: [] }), null);
 });
 
-test("buildTerminalCommand single-quotes cwd and prompt, escaping embedded quotes", () => {
+test("buildLaunchCommand fetches, adds a detached worktree, and starts the agent there", () => {
   assert.equal(
-    buildTerminalCommand("/Users/gking/Projects/PerformYard", "claude", "/address-review #7364"),
-    "cd '/Users/gking/Projects/PerformYard' && claude '/address-review #7364'",
+    buildLaunchCommand({
+      repoPath: "/Users/gking/Projects/PerformYard",
+      worktreePath: "/Users/gking/.cache/inflight-worktrees/PerformYard/resolve-conflicts-7287-x1",
+      branch: "master",
+      agentCmd: "claude",
+      prompt: "/resolve-conflicts #7287",
+    }),
+    "cd '/Users/gking/Projects/PerformYard' && git fetch origin && " +
+      "git worktree add --detach '/Users/gking/.cache/inflight-worktrees/PerformYard/resolve-conflicts-7287-x1' 'origin/master' && " +
+      "cd '/Users/gking/.cache/inflight-worktrees/PerformYard/resolve-conflicts-7287-x1' && " +
+      "claude '/resolve-conflicts #7287'",
   );
-  assert.equal(
-    buildTerminalCommand("/tmp", "codex", "it's here"),
-    "cd '/tmp' && codex 'it'\\''s here'",
+  assert.ok(
+    buildLaunchCommand({
+      repoPath: "/tmp",
+      worktreePath: "/tmp/wt",
+      branch: "main",
+      agentCmd: "codex",
+      prompt: "it's here",
+    }).endsWith("codex 'it'\\''s here'"),
   );
+});
+
+test("slugFor sanitizes prompts to shell-safe worktree names", () => {
+  assert.equal(slugFor("/resolve-conflicts #7287"), "resolve-conflicts-7287");
+  assert.equal(slugFor("/implement-ticket PY-13548"), "implement-ticket-py-13548");
+  assert.equal(slugFor("Investigate and fix the failing CI checks on PR #7411."), "investigate-and-fix-the-failing-ci-checks-on-pr-7411");
 });
 
 test("mapReviewPr builds a review item with id, author, ci, and age", () => {

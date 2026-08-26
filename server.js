@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { execFile, execSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -66,6 +66,12 @@ export const CONFIG = {
   // Coding agent CLIs the launch buttons can start, keyed by the name the UI
   // sends. The prompt is passed as the initial message.
   agents: { claude: "claude", codex: "codex" },
+  // Every launch runs in a fresh worktree detached at the latest
+  // origin/<default branch>, created here — never in the main checkout.
+  worktreeRoot: "/Users/gking/.cache/inflight-worktrees",
+  // Clean worktrees older than this are removed on the next launch. Dirty
+  // ones are never removed (git worktree remove refuses without --force).
+  worktreeMaxAgeMs: 72 * 60 * 60 * 1000,
 };
 
 export const SECTIONS = ["needs_you", "waiting", "no_pr"];
@@ -403,11 +409,59 @@ const findLaunchTarget = (id, prNumber) => {
 
 const shellQuote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
 
-export const buildTerminalCommand = (cwd, agentCmd, prompt) =>
-  `cd ${shellQuote(cwd)} && ${agentCmd} ${shellQuote(prompt)}`;
+export const slugFor = (prompt) =>
+  String(prompt)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
 
-const launchTerminal = (cwd, agentCmd, prompt) => {
-  const command = buildTerminalCommand(cwd, agentCmd, prompt);
+const branchCache = new Map();
+const defaultBranchOf = (repoPath) => {
+  if (branchCache.has(repoPath)) return branchCache.get(repoPath);
+  let branch = "master";
+  try {
+    branch = execSync("git symbolic-ref --short refs/remotes/origin/HEAD", {
+      cwd: repoPath,
+      encoding: "utf8",
+    })
+      .trim()
+      .replace(/^origin\//, "");
+  } catch {
+    try {
+      execSync("git rev-parse --verify --quiet origin/main", { cwd: repoPath, encoding: "utf8" });
+      branch = "main";
+    } catch {}
+  }
+  branchCache.set(repoPath, branch);
+  return branch;
+};
+
+export const buildLaunchCommand = ({ repoPath, worktreePath, branch, agentCmd, prompt }) =>
+  [
+    `cd ${shellQuote(repoPath)}`,
+    "git fetch origin",
+    `git worktree add --detach ${shellQuote(worktreePath)} ${shellQuote(`origin/${branch}`)}`,
+    `cd ${shellQuote(worktreePath)}`,
+    `${agentCmd} ${shellQuote(prompt)}`,
+  ].join(" && ");
+
+const pruneStaleWorktrees = () => {
+  const repoPaths = new Set([...Object.values(CONFIG.repoPaths), CONFIG.defaultRepoPath]);
+  for (const repoPath of repoPaths) {
+    const dir = join(CONFIG.worktreeRoot, basename(repoPath));
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir)) {
+      const worktreePath = join(dir, name);
+      try {
+        if (Date.now() - statSync(worktreePath).mtimeMs < CONFIG.worktreeMaxAgeMs) continue;
+        execFile("git", ["-C", repoPath, "worktree", "remove", worktreePath], () => {});
+      } catch {}
+    }
+  }
+};
+
+const launchTerminal = (command) => {
   const appleScriptSafe = command.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   execFile("osascript", [
     "-e",
@@ -439,10 +493,21 @@ const startServer = () => {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "unknown item, PR, or agent" }));
         } else {
+          const repoPath = CONFIG.repoPaths[launch.repo] ?? CONFIG.defaultRepoPath;
+          const worktreePath = join(
+            CONFIG.worktreeRoot,
+            basename(repoPath),
+            `${slugFor(launch.prompt)}-${Date.now().toString(36)}`,
+          );
+          pruneStaleWorktrees();
           launchTerminal(
-            CONFIG.repoPaths[launch.repo] ?? CONFIG.defaultRepoPath,
-            agentCmd,
-            launch.prompt,
+            buildLaunchCommand({
+              repoPath,
+              worktreePath,
+              branch: defaultBranchOf(repoPath),
+              agentCmd,
+              prompt: launch.prompt,
+            }),
           );
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true }));

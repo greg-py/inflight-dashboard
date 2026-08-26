@@ -30,8 +30,16 @@ own PRs and status. One piece of work, one row.
 Hovering an actionable line also reveals **launch controls**: the derived agent action
 (`implement` → `/implement-ticket`, `address review` → `/address-review`,
 `resolve conflicts` → `/resolve-conflicts`, `fix CI`, `review` → `/deep-review`) with
-`claude` / `codex` buttons that open a new Terminal window in the right repo with the
-prompt pre-filled, and a `copy` button that copies the prompt to the clipboard instead.
+`claude` / `codex` buttons that open a new Terminal window with the prompt pre-filled,
+and a `copy` button that copies the prompt to the clipboard instead.
+
+Every launch runs in a **fresh git worktree**, never the main checkout: the terminal
+fetches origin, creates a worktree under `~/.cache/inflight-worktrees/<repo>/` detached
+at the latest `origin/<default branch>` (detected per repo), and starts the agent there —
+so agents always begin from up-to-date master/main and check out PR branches themselves.
+Clean worktrees older than 72h are pruned on the next launch; dirty ones are never
+touched.
+
 Prompts are built server-side from validated ticket keys and PR numbers only. Repo → local
 path mapping and agent commands are constants in `server.js`. The server binds to
 127.0.0.1 only.
