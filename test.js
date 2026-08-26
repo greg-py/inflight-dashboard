@@ -6,6 +6,7 @@ import {
   categorizePr,
   sectionFor,
   buildItems,
+  statusRank,
 } from "./server.js";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
@@ -150,6 +151,31 @@ test("buildItems surfaces orphan PRs as their own items", () => {
   assert.equal(items[0].key, null);
   assert.equal(items[0].section, "needs_you");
   assert.equal(items[0].status, "Draft PR");
+});
+
+test("statusRank follows the pipeline order, case-insensitively, unknowns last", () => {
+  const ordered = ["Draft PR", "Open PR", "TO DO", "READY", "In Progress", "In Code Review", "Ready To Test", "In Testing", "READY TO MERGE"];
+  for (let i = 1; i < ordered.length; i++) {
+    assert.ok(statusRank(ordered[i - 1]) < statusRank(ordered[i]), `${ordered[i - 1]} < ${ordered[i]}`);
+  }
+  assert.ok(statusRank("Some New Status") > statusRank("READY TO MERGE"));
+});
+
+test("buildItems sorts by status progression, then newest updated", () => {
+  const status = (name) => ({ name, statusCategory: { key: "indeterminate" } });
+  const items = buildItems(
+    [
+      jiraIssue("PY-3", { status: status("In Testing"), updated: "2026-08-25T10:00:00.000+0000" }),
+      jiraIssue("PY-1", { status: status("In Code Review"), updated: "2026-08-20T10:00:00.000+0000" }),
+      jiraIssue("PY-2", { status: status("In Code Review"), updated: "2026-08-24T10:00:00.000+0000" }),
+      jiraIssue("PY-4", { status: status("Ready To Test"), updated: "2026-08-26T10:00:00.000+0000" }),
+    ],
+    [],
+  );
+  assert.deepEqual(
+    items.map((item) => item.key),
+    ["PY-2", "PY-1", "PY-4", "PY-3"],
+  );
 });
 
 test("buildItems keeps subtask parent annotation", () => {

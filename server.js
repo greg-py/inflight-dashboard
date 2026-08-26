@@ -32,6 +32,20 @@ export const CONFIG = {
   // Ticket statuses (lowercased) that mean "someone else has it" when the
   // ticket has no open PR.
   waitingStatuses: ["in code review", "ready to test", "in testing", "ready to merge", "blocked"],
+  // Sort order within each section, by lowercased status. "Draft PR" and
+  // "Open PR" are the synthetic statuses of PRs with no matched ticket.
+  // Unknown statuses sort last.
+  statusOrder: [
+    "draft pr",
+    "open pr",
+    "to do",
+    "ready",
+    "in progress",
+    "in code review",
+    "ready to test",
+    "in testing",
+    "ready to merge",
+  ],
 };
 
 export const SECTIONS = ["needs_you", "waiting", "no_pr"];
@@ -134,8 +148,17 @@ export const buildItems = (jiraIssues, prs) => {
     }
   }
   for (const item of items) item.section = sectionFor(item);
-  items.sort((a, b) => String(b.updated).localeCompare(String(a.updated)));
+  items.sort(
+    (a, b) =>
+      statusRank(a.status) - statusRank(b.status) ||
+      String(b.updated).localeCompare(String(a.updated)),
+  );
   return items;
+};
+
+export const statusRank = (status) => {
+  const rank = CONFIG.statusOrder.indexOf(String(status ?? "").toLowerCase());
+  return rank === -1 ? CONFIG.statusOrder.length : rank;
 };
 
 const githubToken = () =>
