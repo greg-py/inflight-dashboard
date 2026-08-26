@@ -8,6 +8,10 @@ import {
   buildItems,
   statusRank,
   mapReviewPr,
+  launchForPr,
+  launchForReview,
+  launchForTicket,
+  buildTerminalCommand,
 } from "./server.js";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
@@ -190,6 +194,61 @@ test("buildItems sorts by status progression, then newest updated", () => {
   assert.deepEqual(
     items.map((item) => item.key),
     ["PY-2", "PY-1", "PY-4", "PY-3"],
+  );
+});
+
+const launchPr = (overrides = {}) => ({
+  number: 7364,
+  repo: "PerformYard/PerformYard",
+  reviewDecision: "REVIEW_REQUIRED",
+  mergeable: "MERGEABLE",
+  ci: "success",
+  ...overrides,
+});
+
+test("launchForPr maps PR state to the right skill prompt, in priority order", () => {
+  assert.deepEqual(launchForPr(launchPr({ reviewDecision: "CHANGES_REQUESTED" })), {
+    label: "address review",
+    prompt: "/address-review #7364",
+    repo: "PerformYard/PerformYard",
+  });
+  assert.equal(
+    launchForPr(launchPr({ reviewDecision: "CHANGES_REQUESTED", mergeable: "CONFLICTING" })).label,
+    "address review",
+  );
+  assert.equal(launchForPr(launchPr({ mergeable: "CONFLICTING", ci: "failure" })).label, "resolve conflicts");
+  assert.equal(
+    launchForPr(launchPr({ ci: "failure" })).prompt,
+    "Investigate and fix the failing CI checks on PR #7364.",
+  );
+});
+
+test("launchForPr returns null when no agent action applies", () => {
+  assert.equal(launchForPr(launchPr()), null);
+  assert.equal(launchForPr(launchPr({ reviewDecision: "APPROVED" })), null);
+  assert.equal(launchForPr(launchPr({ number: "7364; rm -rf /" })), null);
+});
+
+test("launchForReview and launchForTicket build their prompts", () => {
+  assert.equal(launchForReview(launchPr()).prompt, "/deep-review #7364");
+  assert.deepEqual(launchForTicket({ key: "PY-13548", prs: [] }), {
+    label: "implement",
+    prompt: "/implement-ticket PY-13548",
+    repo: null,
+  });
+  assert.equal(launchForTicket({ key: "PY-13548", prs: [{ number: 1 }] }), null);
+  assert.equal(launchForTicket({ key: null, prs: [] }), null);
+  assert.equal(launchForTicket({ key: "PY-1 && evil", prs: [] }), null);
+});
+
+test("buildTerminalCommand single-quotes cwd and prompt, escaping embedded quotes", () => {
+  assert.equal(
+    buildTerminalCommand("/Users/gking/Projects/PerformYard", "claude", "/address-review #7364"),
+    "cd '/Users/gking/Projects/PerformYard' && claude '/address-review #7364'",
+  );
+  assert.equal(
+    buildTerminalCommand("/tmp", "codex", "it's here"),
+    "cd '/tmp' && codex 'it'\\''s here'",
   );
 });
 

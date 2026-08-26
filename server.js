@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFile, execSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -47,6 +47,18 @@ export const CONFIG = {
     "in testing",
     "ready to merge",
   ],
+  // Where launch buttons open their terminal session. Skills create their own
+  // worktrees, so the repo root is the right cwd.
+  repoPaths: {
+    "PerformYard/PerformYard": "/Users/gking/Projects/PerformYard",
+    "PerformYard/Logan": "/Users/gking/Projects/Logan",
+    "PerformYard/QA": "/Users/gking/Projects/QA",
+    "PerformYard/koala": "/Users/gking/Projects/koala",
+  },
+  defaultRepoPath: "/Users/gking/Projects/PerformYard",
+  // Coding agent CLIs the launch buttons can start, keyed by the name the UI
+  // sends. The prompt is passed as the initial message.
+  agents: { claude: "claude", codex: "codex" },
 };
 
 export const SECTIONS = ["needs_you", "waiting", "no_pr"];
@@ -108,6 +120,36 @@ export const categorizePr = (pr) => {
   return { bucket, reasons };
 };
 
+// Derives the agent action for a PR of yours. Prompts are built only from the
+// validated PR number — never from titles or other free text.
+export const launchForPr = (pr) => {
+  if (!Number.isInteger(pr.number)) return null;
+  if (pr.reviewDecision === "CHANGES_REQUESTED") {
+    return { label: "address review", prompt: `/address-review #${pr.number}`, repo: pr.repo };
+  }
+  if (pr.mergeable === "CONFLICTING") {
+    return { label: "resolve conflicts", prompt: `/resolve-conflicts #${pr.number}`, repo: pr.repo };
+  }
+  if (pr.ci === "failure") {
+    return {
+      label: "fix CI",
+      prompt: `Investigate and fix the failing CI checks on PR #${pr.number}.`,
+      repo: pr.repo,
+    };
+  }
+  return null;
+};
+
+export const launchForReview = (pr) => {
+  if (!Number.isInteger(pr.number)) return null;
+  return { label: "review", prompt: `/deep-review #${pr.number}`, repo: pr.repo };
+};
+
+export const launchForTicket = (item) => {
+  if (item.prs.length > 0 || !/^PY-\d+$/.test(item.key ?? "")) return null;
+  return { label: "implement", prompt: `/implement-ticket ${item.key}`, repo: null };
+};
+
 export const sectionFor = (item) => {
   if (item.prs.length > 0) {
     return item.prs.some((pr) => pr.bucket === "needs_you") ? "needs_you" : "waiting";
@@ -154,7 +196,10 @@ export const buildItems = (jiraIssues, prs) => {
       });
     }
   }
-  for (const item of items) item.section = sectionFor(item);
+  for (const item of items) {
+    item.section = sectionFor(item);
+    item.launch = launchForTicket(item);
+  }
   items.sort(
     (a, b) =>
       statusRank(a.status) - statusRank(b.status) ||
@@ -225,11 +270,12 @@ export const fetchGithub = async () => {
   return {
     mine: prNodes(data.data.mine).map((node) => {
       const pr = basePrOf(node, now);
-      return { ...pr, ...categorizePr(pr) };
+      return { ...pr, ...categorizePr(pr), launch: launchForPr(pr) };
     }),
     // Oldest first: the most overdue review sits at the top.
     reviewRequests: prNodes(data.data.reviews)
       .map((node) => mapReviewPr(node, now))
+      .map((pr) => ({ ...pr, launch: launchForReview(pr) }))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
   };
 };
@@ -263,10 +309,14 @@ export const fetchJira = async () => {
   return issues;
 };
 
+// Last payload served, so /api/launch can resolve an id back to its derived
+// prompt instead of trusting anything from the client.
+let lastPayload = null;
+
 const getData = async () => {
   const [jira, github] = await Promise.allSettled([fetchJira(), fetchGithub()]);
   const withHidden = (entry) => ({ ...entry, hidden: hiddenIds.has(entry.id) });
-  return {
+  return (lastPayload = {
     fetchedAt: new Date().toISOString(),
     sources: {
       jira: jira.status === "fulfilled" ? { ok: true } : { ok: false, error: jira.reason.message },
@@ -280,7 +330,33 @@ const getData = async () => {
     reviewRequests: (github.status === "fulfilled" ? github.value.reviewRequests : []).map(
       withHidden,
     ),
-  };
+  });
+};
+
+const findLaunchTarget = (id, prNumber) => {
+  const entries = [...(lastPayload?.items ?? []), ...(lastPayload?.reviewRequests ?? [])];
+  const entry = entries.find((candidate) => candidate.id === id);
+  if (!entry) return null;
+  if (prNumber != null) {
+    return (entry.prs ?? []).find((pr) => pr.number === Number(prNumber))?.launch ?? null;
+  }
+  return entry.launch ?? null;
+};
+
+const shellQuote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
+
+export const buildTerminalCommand = (cwd, agentCmd, prompt) =>
+  `cd ${shellQuote(cwd)} && ${agentCmd} ${shellQuote(prompt)}`;
+
+const launchTerminal = (cwd, agentCmd, prompt) => {
+  const command = buildTerminalCommand(cwd, agentCmd, prompt);
+  const appleScriptSafe = command.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  execFile("osascript", [
+    "-e",
+    `tell application "Terminal" to do script "${appleScriptSafe}"`,
+    "-e",
+    'tell application "Terminal" to activate',
+  ]);
 };
 
 const readBody = (req) =>
@@ -297,6 +373,22 @@ const startServer = () => {
         const body = JSON.stringify(await getData());
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(body);
+      } else if (req.method === "POST" && req.url === "/api/launch") {
+        const { id, prNumber, agent } = JSON.parse((await readBody(req)) || "{}");
+        const agentCmd = CONFIG.agents[agent];
+        const launch = typeof id === "string" ? findLaunchTarget(id, prNumber) : null;
+        if (!agentCmd || !launch) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "unknown item, PR, or agent" }));
+        } else {
+          launchTerminal(
+            CONFIG.repoPaths[launch.repo] ?? CONFIG.defaultRepoPath,
+            agentCmd,
+            launch.prompt,
+          );
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+        }
       } else if (req.method === "POST" && (req.url === "/api/hide" || req.url === "/api/restore")) {
         const { id } = JSON.parse((await readBody(req)) || "{}");
         if (typeof id === "string" && id) {
@@ -313,7 +405,7 @@ const startServer = () => {
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: err.message }));
     }
-  }).listen(CONFIG.port, () => {
+  }).listen(CONFIG.port, "127.0.0.1", () => {
     console.log(`inflight dashboard → http://localhost:${CONFIG.port}`);
   });
 };

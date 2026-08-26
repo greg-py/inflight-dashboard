@@ -17,6 +17,15 @@ who's blocked.
 PRs are linked to tickets automatically by extracting `PY-####` from the branch name and
 PR title. PRs with no ticket key show up as their own rows so nothing goes missing.
 
+Hovering an actionable line also reveals **launch controls**: the derived agent action
+(`implement` → `/implement-ticket`, `address review` → `/address-review`,
+`resolve conflicts` → `/resolve-conflicts`, `fix CI`, `review` → `/deep-review`) with
+`claude` / `codex` buttons that open a new Terminal window in the right repo with the
+prompt pre-filled, and a `copy` button that copies the prompt to the clipboard instead.
+Prompts are built server-side from validated ticket keys and PR numbers only. Repo → local
+path mapping and agent commands are constants in `server.js`. The server binds to
+127.0.0.1 only.
+
 Hovering a row reveals a **hide** control for items you don't need to track right now.
 Hidden items move to a collapsed **Hidden** section at the bottom, where they can be
 restored. Hides are held in server memory only — restarting the server clears them.
