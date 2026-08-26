@@ -20,6 +20,7 @@
     --green: #3b6d11;
     --blue: #185fa5;
     --blue-bg: #e6f1fb;
+    --purple: #534ab7;
     --gray-chip-bg: #f1efe8;
     --gray-chip: #444441;
   }
@@ -38,6 +39,7 @@
       --green: #97c459;
       --blue: #85b7eb;
       --blue-bg: #16324c;
+      --purple: #afa9ec;
       --gray-chip-bg: #37372f;
       --gray-chip: #d3d1c7;
     }
@@ -49,28 +51,39 @@
     color: var(--text);
     font: 14px/1.45 -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
   }
-  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
-  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  main { max-width: 1360px; margin: 0 auto; padding: 20px 20px 48px; }
   .topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 4px 4px 14px;
   }
-  .topbar h1 { font-size: 15px; font-weight: 600; margin: 0; }
+  .topbar h1 { font-size: 16px; font-weight: 600; margin: 0; }
   #refreshed { font-size: 12px; color: var(--text-3); }
   .banner {
-    margin: 12px 20px 0; padding: 8px 12px; border-radius: 8px;
+    margin: 0 0 12px; padding: 8px 12px; border-radius: 8px;
     background: var(--amber-bg); color: var(--amber); font-size: 12.5px;
   }
-  .section-head { padding: 14px 20px 4px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+  #error { margin: 0 0 12px; color: var(--red); font-size: 13px; }
+  .grid {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px; align-items: start;
+  }
+  @media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .section-head {
+    padding: 12px 18px 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+  }
   .section-head.needs_you { color: var(--red); }
   .section-head.waiting { color: var(--amber); }
   .section-head.no_pr { color: var(--text-3); }
+  .section-head.reviews { color: var(--purple); }
   .row {
-    display: flex; align-items: flex-start; gap: 12px;
-    padding: 10px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 18px; border-top: 1px solid var(--border);
   }
-  .row:last-child { border-bottom: none; }
-  .key { font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; min-width: 76px; padding-top: 1px; }
+  .row:first-of-type { border-top: none; }
+  .section-head + .row { border-top: none; }
+  .key { font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; min-width: 72px; padding-top: 1px; color: var(--text-2); }
   .key a { color: var(--text-2); text-decoration: none; }
   .key a:hover { text-decoration: underline; }
   .body { flex: 1; min-width: 0; }
@@ -86,18 +99,16 @@
     background: var(--gray-chip-bg); color: var(--gray-chip);
   }
   .chip.indeterminate { background: var(--blue-bg); color: var(--blue); }
-  .empty { padding: 8px 20px 12px; font-size: 12.5px; color: var(--text-3); }
-  #error { margin: 12px 20px; color: var(--red); font-size: 13px; }
+  .empty { padding: 4px 18px 12px; font-size: 12.5px; color: var(--text-3); }
   .act {
     visibility: hidden; border: none; background: none; cursor: pointer;
     font-size: 11px; color: var(--text-3); padding: 2px 4px; margin-top: 1px;
   }
   .act:hover { color: var(--text); text-decoration: underline; }
   .row:hover .act { visibility: visible; }
-  #hidden-details { border-top: 1px solid var(--border); }
-  #hidden-details[hidden] { display: none; }
+  #hidden-card[hidden] { display: none; }
   #hidden-details summary {
-    padding: 12px 20px; font-size: 12px; font-weight: 600; color: var(--text-3);
+    padding: 12px 18px; font-size: 12px; font-weight: 600; color: var(--text-3);
     cursor: pointer; list-style-position: inside;
   }
   #hidden-details .row { opacity: 0.6; }
@@ -106,18 +117,27 @@
 </head>
 <body>
 <main>
-  <div class="panel">
-    <div class="topbar">
-      <h1>In-flight</h1>
-      <span id="refreshed">loading…</span>
+  <div class="topbar">
+    <h1>In-flight</h1>
+    <span id="refreshed">loading…</span>
+  </div>
+  <div id="banners"></div>
+  <div id="error" hidden></div>
+  <div class="grid">
+    <div class="col">
+      <div class="card" id="section-needs_you"></div>
+      <div class="card" id="section-waiting"></div>
+      <div class="card" id="section-no_pr"></div>
     </div>
-    <div id="banners"></div>
-    <div id="error" hidden></div>
-    <div id="content"></div>
-    <details id="hidden-details" hidden>
-      <summary id="hidden-summary">Hidden</summary>
-      <div id="hidden-list"></div>
-    </details>
+    <div class="col">
+      <div class="card" id="section-reviews"></div>
+      <div class="card" id="hidden-card" hidden>
+        <details id="hidden-details">
+          <summary id="hidden-summary">Hidden</summary>
+          <div id="hidden-list"></div>
+        </details>
+      </div>
+    </div>
   </div>
 </main>
 <script>
@@ -143,12 +163,15 @@
     return `<span class="${cls}">${esc(reason)}</span>`;
   };
 
+  const actButton = (action, id) =>
+    `<button class="act" data-action="${action}" data-id="${esc(id)}">${action}</button>`;
+
   const prLine = (pr) =>
     `<div class="pr-line"><a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(
       pr.repo,
     )}#${pr.number}</a> · ${pr.reasons.map(reasonSpan).join(" · ")}</div>`;
 
-  const rowHtml = (item, action) => {
+  const workRowHtml = (item, action) => {
     const key = item.key
       ? `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.key)}</a>`
       : "—";
@@ -165,9 +188,31 @@
         item.summary,
       )}${subtask}</div>${prLines}${noPr}</div>
       <span class="chip ${esc(item.statusCategory)}">${esc(item.status)}</span>
-      <button class="act" data-action="${action}" data-id="${esc(item.id)}">${action}</button>
+      ${actButton(action, item.id)}
     </div>`;
   };
+
+  const reviewRowHtml = (pr, action) => {
+    const ciSpan =
+      pr.ci === "failure" ? reasonSpan("CI failing") : pr.ci === "success" ? reasonSpan("CI green") : "";
+    const details = [
+      `<a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.repo)}#${pr.number}</a>`,
+      `open ${pr.ageDays}d`,
+      pr.isDraft ? "draft" : "",
+      ciSpan,
+    ].filter(Boolean);
+    return `<div class="row">
+      <span class="key">${esc(pr.author)}</span>
+      <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
+        <div class="pr-line">${details.join(" · ")}</div></div>
+      <span class="chip">${esc(pr.repo.split("/")[1] ?? pr.repo)}</span>
+      ${actButton(action, pr.id)}
+    </div>`;
+  };
+
+  const sectionHtml = (cls, label, rows) =>
+    `<div class="section-head ${cls}">${label} · ${rows.length}</div>` +
+    (rows.length ? rows.join("") : `<div class="empty">nothing here</div>`);
 
   const render = (data) => {
     const banners = [];
@@ -175,26 +220,31 @@
       if (!source.ok) banners.push(`<div class="banner">${esc(name)}: ${esc(source.error)}</div>`);
     }
     document.getElementById("banners").innerHTML = banners.join("");
-    const parts = [];
+
     for (const section of SECTIONS) {
       const items = data.items.filter((item) => item.section === section.id && !item.hidden);
-      parts.push(
-        `<div class="section-head ${section.id}">${section.label} · ${items.length}</div>`,
-      );
-      parts.push(
-        items.length
-          ? items.map((item) => rowHtml(item, "hide")).join("")
-          : `<div class="empty">nothing here</div>`,
+      document.getElementById(`section-${section.id}`).innerHTML = sectionHtml(
+        section.id,
+        section.label,
+        items.map((item) => workRowHtml(item, "hide")),
       );
     }
-    document.getElementById("content").innerHTML = parts.join("");
-    const hiddenItems = data.items.filter((item) => item.hidden);
-    const details = document.getElementById("hidden-details");
-    details.hidden = hiddenItems.length === 0;
-    document.getElementById("hidden-summary").textContent = `Hidden · ${hiddenItems.length}`;
-    document.getElementById("hidden-list").innerHTML = hiddenItems
-      .map((item) => rowHtml(item, "restore"))
-      .join("");
+
+    const reviews = data.reviewRequests.filter((pr) => !pr.hidden);
+    document.getElementById("section-reviews").innerHTML = sectionHtml(
+      "reviews",
+      "Reviews requested of you",
+      reviews.map((pr) => reviewRowHtml(pr, "hide")),
+    );
+
+    const hiddenWork = data.items.filter((item) => item.hidden);
+    const hiddenReviews = data.reviewRequests.filter((pr) => pr.hidden);
+    const hiddenCount = hiddenWork.length + hiddenReviews.length;
+    document.getElementById("hidden-card").hidden = hiddenCount === 0;
+    document.getElementById("hidden-summary").textContent = `Hidden · ${hiddenCount}`;
+    document.getElementById("hidden-list").innerHTML =
+      hiddenWork.map((item) => workRowHtml(item, "restore")).join("") +
+      hiddenReviews.map((pr) => reviewRowHtml(pr, "restore")).join("");
   };
 
   const showRefreshed = () => {
@@ -233,8 +283,8 @@
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       if (lastData) {
-        for (const item of lastData.items) {
-          if (item.id === id) item.hidden = action === "hide";
+        for (const entry of [...lastData.items, ...lastData.reviewRequests]) {
+          if (entry.id === id) entry.hidden = action === "hide";
         }
         render(lastData);
       }

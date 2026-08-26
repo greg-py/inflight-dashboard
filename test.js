@@ -7,6 +7,7 @@ import {
   sectionFor,
   buildItems,
   statusRank,
+  mapReviewPr,
 } from "./server.js";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
@@ -190,6 +191,55 @@ test("buildItems sorts by status progression, then newest updated", () => {
     items.map((item) => item.key),
     ["PY-2", "PY-1", "PY-4", "PY-3"],
   );
+});
+
+test("mapReviewPr builds a review item with id, author, ci, and age", () => {
+  const node = {
+    number: 7400,
+    title: "PY-14000 Some feature",
+    url: "https://github.com/PerformYard/PerformYard/pull/7400",
+    isDraft: false,
+    author: { login: "marcus-withers" },
+    repository: { nameWithOwner: "PerformYard/PerformYard" },
+    createdAt: "2026-08-20T00:00:00Z",
+    updatedAt: "2026-08-25T00:00:00Z",
+    commits: {
+      nodes: [
+        {
+          commit: {
+            statusCheckRollup: {
+              contexts: {
+                nodes: [
+                  { name: "QA Code Review", conclusion: "FAILURE" },
+                  { name: "Unit Tests (1/8)", conclusion: "SUCCESS" },
+                ],
+              },
+            },
+          },
+        },
+      ],
+    },
+  };
+  const pr = mapReviewPr(node, Date.parse("2026-08-26T00:00:00Z"));
+  assert.equal(pr.id, "PerformYard/PerformYard#7400");
+  assert.equal(pr.author, "marcus-withers");
+  assert.equal(pr.ci, "success");
+  assert.equal(pr.ageDays, 6);
+});
+
+test("mapReviewPr falls back to unknown when the author is missing", () => {
+  const node = {
+    number: 1,
+    title: "t",
+    url: "u",
+    isDraft: false,
+    author: null,
+    repository: { nameWithOwner: "PerformYard/Logan" },
+    createdAt: "2026-08-26T00:00:00Z",
+    updatedAt: "2026-08-26T00:00:00Z",
+    commits: { nodes: [] },
+  };
+  assert.equal(mapReviewPr(node, Date.parse("2026-08-26T00:00:00Z")).author, "unknown");
 });
 
 test("buildItems keeps subtask parent annotation", () => {

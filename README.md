@@ -11,6 +11,8 @@ who's blocked.
 - **Waiting on others** — PRs awaiting review, or tickets sitting in a QA/review status
   with no open PR.
 - **No open PR** — assigned tickets that haven't started (or whose PRs already merged).
+- **Reviews requested of you** — other people's open PRs where your review is requested,
+  oldest first.
 
 PRs are linked to tickets automatically by extracting `PY-####` from the branch name and
 PR title. PRs with no ticket key show up as their own rows so nothing goes missing.

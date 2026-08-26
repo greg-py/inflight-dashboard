@@ -24,6 +24,7 @@ export const CONFIG = {
   jiraJql:
     "assignee = currentUser() AND project = PY AND statusCategory != Done ORDER BY updated DESC",
   githubSearch: "is:pr is:open author:@me archived:false org:PerformYard",
+  githubReviewSearch: "is:pr is:open review-requested:@me archived:false org:PerformYard",
   ticketKeyPattern: /\bPY-\d+\b/gi,
   // Checks that are red until a human acts and therefore say nothing about the
   // build (e.g. the QA Code Review approval gate). Matched case-insensitively
@@ -170,19 +171,39 @@ export const statusRank = (status) => {
 const githubToken = () =>
   process.env.GITHUB_TOKEN || execSync("gh auth token", { encoding: "utf8" }).trim();
 
-const GITHUB_QUERY = `query($q: String!) {
-  search(query: $q, type: ISSUE, first: 50) {
-    nodes {
-      ... on PullRequest {
-        number title url isDraft headRefName mergeable reviewDecision createdAt updatedAt
-        repository { nameWithOwner }
-        commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) {
-          nodes { ... on CheckRun { name conclusion status } ... on StatusContext { context state } }
-        } } } } }
-      }
-    }
-  }
+const GITHUB_QUERY = `query($mine: String!, $reviews: String!) {
+  mine: search(query: $mine, type: ISSUE, first: 50) { nodes { ...PrFields } }
+  reviews: search(query: $reviews, type: ISSUE, first: 50) { nodes { ...PrFields } }
+}
+fragment PrFields on PullRequest {
+  number title url isDraft headRefName mergeable reviewDecision createdAt updatedAt
+  author { login }
+  repository { nameWithOwner }
+  commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) {
+    nodes { ... on CheckRun { name conclusion status } ... on StatusContext { context state } }
+  } } } } }
 }`;
+
+const basePrOf = (node, now) => ({
+  number: node.number,
+  title: node.title,
+  url: node.url,
+  repo: node.repository.nameWithOwner,
+  author: node.author?.login ?? "unknown",
+  isDraft: node.isDraft,
+  headRefName: node.headRefName,
+  mergeable: node.mergeable,
+  reviewDecision: node.reviewDecision,
+  createdAt: node.createdAt,
+  updatedAt: node.updatedAt,
+  ci: effectiveCi(node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes),
+  ageDays: Math.max(0, Math.floor((now - Date.parse(node.createdAt)) / 86_400_000)),
+});
+
+export const mapReviewPr = (node, now) => {
+  const pr = basePrOf(node, now);
+  return { ...pr, id: `${pr.repo}#${pr.number}` };
+};
 
 export const fetchGithub = async () => {
   const res = await fetch("https://api.github.com/graphql", {
@@ -191,31 +212,26 @@ export const fetchGithub = async () => {
       Authorization: `Bearer ${githubToken()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ query: GITHUB_QUERY, variables: { q: CONFIG.githubSearch } }),
+    body: JSON.stringify({
+      query: GITHUB_QUERY,
+      variables: { mine: CONFIG.githubSearch, reviews: CONFIG.githubReviewSearch },
+    }),
   });
   if (!res.ok) throw new Error(`GitHub ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();
   if (data.errors) throw new Error(`GitHub GraphQL: ${data.errors[0]?.message}`);
   const now = Date.now();
-  return (data.data.search.nodes ?? [])
-    .filter((node) => node.number !== undefined)
-    .map((node) => {
-      const pr = {
-        number: node.number,
-        title: node.title,
-        url: node.url,
-        repo: node.repository.nameWithOwner,
-        isDraft: node.isDraft,
-        headRefName: node.headRefName,
-        mergeable: node.mergeable,
-        reviewDecision: node.reviewDecision,
-        createdAt: node.createdAt,
-        updatedAt: node.updatedAt,
-        ci: effectiveCi(node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes),
-        ageDays: Math.max(0, Math.floor((now - Date.parse(node.createdAt)) / 86_400_000)),
-      };
+  const prNodes = (search) => (search?.nodes ?? []).filter((node) => node.number !== undefined);
+  return {
+    mine: prNodes(data.data.mine).map((node) => {
+      const pr = basePrOf(node, now);
       return { ...pr, ...categorizePr(pr) };
-    });
+    }),
+    // Oldest first: the most overdue review sits at the top.
+    reviewRequests: prNodes(data.data.reviews)
+      .map((node) => mapReviewPr(node, now))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+  };
 };
 
 export const fetchJira = async () => {
@@ -249,6 +265,7 @@ export const fetchJira = async () => {
 
 const getData = async () => {
   const [jira, github] = await Promise.allSettled([fetchJira(), fetchGithub()]);
+  const withHidden = (entry) => ({ ...entry, hidden: hiddenIds.has(entry.id) });
   return {
     fetchedAt: new Date().toISOString(),
     sources: {
@@ -258,8 +275,11 @@ const getData = async () => {
     },
     items: buildItems(
       jira.status === "fulfilled" ? jira.value : [],
-      github.status === "fulfilled" ? github.value : [],
-    ).map((item) => ({ ...item, hidden: hiddenIds.has(item.id) })),
+      github.status === "fulfilled" ? github.value.mine : [],
+    ).map(withHidden),
+    reviewRequests: (github.status === "fulfilled" ? github.value.reviewRequests : []).map(
+      withHidden,
+    ),
   };
 };
 
