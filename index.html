@@ -88,6 +88,20 @@
   .chip.indeterminate { background: var(--blue-bg); color: var(--blue); }
   .empty { padding: 8px 20px 12px; font-size: 12.5px; color: var(--text-3); }
   #error { margin: 12px 20px; color: var(--red); font-size: 13px; }
+  .act {
+    visibility: hidden; border: none; background: none; cursor: pointer;
+    font-size: 11px; color: var(--text-3); padding: 2px 4px; margin-top: 1px;
+  }
+  .act:hover { color: var(--text); text-decoration: underline; }
+  .row:hover .act { visibility: visible; }
+  #hidden-details { border-top: 1px solid var(--border); }
+  #hidden-details[hidden] { display: none; }
+  #hidden-details summary {
+    padding: 12px 20px; font-size: 12px; font-weight: 600; color: var(--text-3);
+    cursor: pointer; list-style-position: inside;
+  }
+  #hidden-details .row { opacity: 0.6; }
+  #hidden-details .row:hover { opacity: 1; }
 </style>
 </head>
 <body>
@@ -100,6 +114,10 @@
     <div id="banners"></div>
     <div id="error" hidden></div>
     <div id="content"></div>
+    <details id="hidden-details" hidden>
+      <summary id="hidden-summary">Hidden</summary>
+      <div id="hidden-list"></div>
+    </details>
   </div>
 </main>
 <script>
@@ -113,6 +131,7 @@
   const GOOD_REASONS = ["CI green", "approved · ready to merge", "approved"];
 
   let lastFetched = null;
+  let lastData = null;
 
   const esc = (s) =>
     String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -129,7 +148,7 @@
       pr.repo,
     )}#${pr.number}</a> · ${pr.reasons.map(reasonSpan).join(" · ")}</div>`;
 
-  const rowHtml = (item) => {
+  const rowHtml = (item, action) => {
     const key = item.key
       ? `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.key)}</a>`
       : "—";
@@ -146,6 +165,7 @@
         item.summary,
       )}${subtask}</div>${prLines}${noPr}</div>
       <span class="chip ${esc(item.statusCategory)}">${esc(item.status)}</span>
+      <button class="act" data-action="${action}" data-id="${esc(item.id)}">${action}</button>
     </div>`;
   };
 
@@ -157,13 +177,24 @@
     document.getElementById("banners").innerHTML = banners.join("");
     const parts = [];
     for (const section of SECTIONS) {
-      const items = data.items.filter((item) => item.section === section.id);
+      const items = data.items.filter((item) => item.section === section.id && !item.hidden);
       parts.push(
         `<div class="section-head ${section.id}">${section.label} · ${items.length}</div>`,
       );
-      parts.push(items.length ? items.map(rowHtml).join("") : `<div class="empty">nothing here</div>`);
+      parts.push(
+        items.length
+          ? items.map((item) => rowHtml(item, "hide")).join("")
+          : `<div class="empty">nothing here</div>`,
+      );
     }
     document.getElementById("content").innerHTML = parts.join("");
+    const hiddenItems = data.items.filter((item) => item.hidden);
+    const details = document.getElementById("hidden-details");
+    details.hidden = hiddenItems.length === 0;
+    document.getElementById("hidden-summary").textContent = `Hidden · ${hiddenItems.length}`;
+    document.getElementById("hidden-list").innerHTML = hiddenItems
+      .map((item) => rowHtml(item, "restore"))
+      .join("");
   };
 
   const showRefreshed = () => {
@@ -178,7 +209,8 @@
     try {
       const res = await fetch("/api/data");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      render(await res.json());
+      lastData = await res.json();
+      render(lastData);
       lastFetched = Date.now();
       errorEl.hidden = true;
     } catch (err) {
@@ -187,6 +219,32 @@
     }
     showRefreshed();
   };
+
+  document.querySelector("main").addEventListener("click", async (event) => {
+    const button = event.target.closest("button.act");
+    if (!button) return;
+    const { action, id } = button.dataset;
+    button.disabled = true;
+    try {
+      const res = await fetch(`/api/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (lastData) {
+        for (const item of lastData.items) {
+          if (item.id === id) item.hidden = action === "hide";
+        }
+        render(lastData);
+      }
+    } catch (err) {
+      button.disabled = false;
+      const errorEl = document.getElementById("error");
+      errorEl.textContent = `${action} failed: ${err.message}`;
+      errorEl.hidden = false;
+    }
+  });
 
   refresh();
   setInterval(refresh, REFRESH_MS);

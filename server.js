@@ -114,8 +114,13 @@ export const sectionFor = (item) => {
   return CONFIG.waitingStatuses.includes(item.status.toLowerCase()) ? "waiting" : "no_pr";
 };
 
+// Ids of manually hidden items. In-memory and ephemeral by design — a server
+// restart clears them.
+export const hiddenIds = new Set();
+
 export const buildItems = (jiraIssues, prs) => {
   const items = jiraIssues.map((issue) => ({
+    id: issue.key,
     key: issue.key,
     url: `${CONFIG.jiraBaseUrl}/browse/${issue.key}`,
     summary: issue.fields.summary,
@@ -135,6 +140,7 @@ export const buildItems = (jiraIssues, prs) => {
       for (const item of matched) item.prs.push(pr);
     } else {
       items.push({
+        id: `${pr.repo}#${pr.number}`,
         key: null,
         url: null,
         summary: pr.title,
@@ -253,9 +259,16 @@ const getData = async () => {
     items: buildItems(
       jira.status === "fulfilled" ? jira.value : [],
       github.status === "fulfilled" ? github.value : [],
-    ),
+    ).map((item) => ({ ...item, hidden: hiddenIds.has(item.id) })),
   };
 };
+
+const readBody = (req) =>
+  new Promise((resolve) => {
+    let data = "";
+    req.on("data", (chunk) => (data += chunk));
+    req.on("end", () => resolve(data));
+  });
 
 const startServer = () => {
   createServer(async (req, res) => {
@@ -264,6 +277,14 @@ const startServer = () => {
         const body = JSON.stringify(await getData());
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(body);
+      } else if (req.method === "POST" && (req.url === "/api/hide" || req.url === "/api/restore")) {
+        const { id } = JSON.parse((await readBody(req)) || "{}");
+        if (typeof id === "string" && id) {
+          if (req.url === "/api/hide") hiddenIds.add(id);
+          else hiddenIds.delete(id);
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
       } else {
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(readFileSync(join(__dirname, "index.html")));

@@ -153,6 +153,20 @@ test("buildItems surfaces orphan PRs as their own items", () => {
   assert.equal(items[0].status, "Draft PR");
 });
 
+test("buildItems assigns stable ids: ticket key, or repo#number for orphan PRs", () => {
+  const orphan = {
+    number: 703,
+    repo: "PerformYard/Logan",
+    title: "Koala machine API",
+    headRefName: "koala/machine-api",
+    isDraft: true,
+    updatedAt: "2026-08-25T12:00:00Z",
+    bucket: "needs_you",
+  };
+  const items = buildItems([jiraIssue("PY-13548")], [orphan]);
+  assert.deepEqual(items.map((item) => item.id).sort(), ["PY-13548", "PerformYard/Logan#703"].sort());
+});
+
 test("statusRank follows the pipeline order, case-insensitively, unknowns last", () => {
   const ordered = ["Draft PR", "Open PR", "TO DO", "READY", "In Progress", "In Code Review", "Ready To Test", "In Testing", "READY TO MERGE"];
   for (let i = 1; i < ordered.length; i++) {
