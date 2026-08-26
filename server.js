@@ -55,15 +55,11 @@ export const CONFIG = {
     "in testing",
     "ready to merge",
   ],
-  // Where launch buttons open their terminal session. Skills create their own
-  // worktrees, so the repo root is the right cwd.
-  repoPaths: {
-    "PerformYard/PerformYard": "/Users/gking/Projects/PerformYard",
-    "PerformYard/Logan": "/Users/gking/Projects/Logan",
-    "PerformYard/QA": "/Users/gking/Projects/QA",
-    "PerformYard/koala": "/Users/gking/Projects/koala",
-  },
-  defaultRepoPath: "/Users/gking/Projects/PerformYard",
+  // Root directory holding local clones, overridable via REPOS_DIR in .env.
+  // Each GitHub repo maps to <reposDir>/<repo name>.
+  reposDir: process.env.REPOS_DIR || join(homedir(), "Projects"),
+  knownRepos: ["PerformYard/PerformYard", "PerformYard/Logan", "PerformYard/QA", "PerformYard/koala"],
+  defaultRepo: "PerformYard/PerformYard",
   // Coding agent CLIs the launch buttons can start, keyed by the name the UI
   // sends. The prompt is passed as the initial message. `models`/`efforts` are
   // the selectable per-session overrides; the config-file default is always
@@ -82,7 +78,7 @@ export const CONFIG = {
   },
   // Every launch runs in a fresh worktree detached at the latest
   // origin/<default branch>, created here — never in the main checkout.
-  worktreeRoot: "/Users/gking/.cache/inflight-worktrees",
+  worktreeRoot: join(homedir(), ".cache/inflight-worktrees"),
   // Clean worktrees older than this are removed on the next launch. Dirty
   // ones are never removed (git worktree remove refuses without --force).
   worktreeMaxAgeMs: 72 * 60 * 60 * 1000,
@@ -502,8 +498,13 @@ export const buildLaunchCommand = ({ repoPath, worktreePath, branch, invocation 
     invocation,
   ].join(" && ");
 
+export const repoPathFor = (repo) => {
+  const known = CONFIG.knownRepos.includes(repo) ? repo : CONFIG.defaultRepo;
+  return join(CONFIG.reposDir, known.split("/")[1]);
+};
+
 const pruneStaleWorktrees = () => {
-  const repoPaths = new Set([...Object.values(CONFIG.repoPaths), CONFIG.defaultRepoPath]);
+  const repoPaths = new Set(CONFIG.knownRepos.map(repoPathFor));
   for (const repoPath of repoPaths) {
     const dir = join(CONFIG.worktreeRoot, basename(repoPath));
     if (!existsSync(dir)) continue;
@@ -548,11 +549,18 @@ const startServer = () => {
         const modelOk =
           !model || agentDef?.models.includes(model) || model === agentDefaults[agent]?.model;
         const effortOk = !effort || agentDef?.efforts.includes(effort);
+        const repoPath = launch ? repoPathFor(launch.repo) : null;
         if (!agentDef || !launch || !modelOk || !effortOk) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "unknown item, PR, agent, model, or effort" }));
+        } else if (!existsSync(repoPath)) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              error: `repo not found at ${repoPath} — clone it there or set REPOS_DIR in .env`,
+            }),
+          );
         } else {
-          const repoPath = CONFIG.repoPaths[launch.repo] ?? CONFIG.defaultRepoPath;
           const worktreePath = join(
             CONFIG.worktreeRoot,
             basename(repoPath),

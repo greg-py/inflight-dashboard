@@ -46,13 +46,13 @@ topbar shows a model and effort selector per agent with the config default pre-s
 value passes `--model`/`--effort` (claude) or `-m`/`-c model_reasoning_effort=…` (codex)
 for that session only. Selectable values are whitelisted constants in `server.js`.
 
-The dashboard's skill prompts also work in Codex: the five skills are symlinked into
-`~/.codex/skills/` from `~/.claude/skills/`, so both agents load the same skill
+The dashboard's skill prompts work in both agents: `npm run setup` symlinks the bundled
+skills into `~/.claude/skills/` and `~/.codex/skills/`, so claude and codex load the same
 definitions.
 
-Prompts are built server-side from validated ticket keys and PR numbers only. Repo → local
-path mapping and agent commands are constants in `server.js`. The server binds to
-127.0.0.1 only.
+Prompts are built server-side from validated ticket keys and PR numbers only. Repos
+resolve to `REPOS_DIR/<name>` (default `~/Projects`); agent commands and model whitelists
+are constants in `server.js`. The server binds to 127.0.0.1 only.
 
 Hovering a row reveals a **hide** control for items you don't need to track right now.
 Hidden items move to a collapsed **Hidden** section at the bottom, where they can be
@@ -64,9 +64,19 @@ counts as passing if any run of that check name passed.
 
 ## Setup
 
-1. Requires Node 18+ and an authenticated `gh` CLI (`gh auth status`).
+Everything is per-user: the dashboard reads *your* Jira assignments and *your* GitHub PRs
+based on the credentials you provide. Requirements: macOS (launch buttons drive
+Terminal.app), Node 18+, an authenticated `gh` CLI (`gh auth status`), Claude Code
+(`claude`), and optionally Codex (`codex`).
+
+1. Clone this repo and run `npm run setup` — it symlinks the bundled skills
+   (`implement-ticket`, `address-review`, `resolve-conflicts`, `deep-review`,
+   `verify-review`) into `~/.claude/skills/` and `~/.codex/skills/` so the launch prompts
+   work in both agents. Skills you already have are left untouched; symlinks mean
+   `git pull` updates them in place.
 2. Create a Jira API token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
-3. Copy `.env.example` to `.env` and fill in `JIRA_EMAIL` and `JIRA_API_TOKEN`.
+3. Copy `.env.example` to `.env` and fill in `JIRA_EMAIL` and `JIRA_API_TOKEN`. If your
+   repos aren't cloned under `~/Projects/<name>`, set `REPOS_DIR`.
 
 ## Run
 

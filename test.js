@@ -15,6 +15,7 @@ import {
   buildAgentInvocation,
   slugFor,
   changesAddressed,
+  repoPathFor,
 } from "./server.js";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
@@ -374,6 +375,13 @@ test("buildAgentInvocation applies model and effort overrides per CLI, quoting p
   assert.equal(buildAgentInvocation("codex", { effort: "low" }, "/deep-review #7388"),
     `codex -c 'model_reasoning_effort="low"' '/deep-review #7388'`,
   );
+});
+
+test("repoPathFor maps known repos under reposDir and falls back to the default repo", () => {
+  assert.ok(repoPathFor("PerformYard/Logan").endsWith("/Logan"));
+  assert.ok(repoPathFor("PerformYard/QA").endsWith("/QA"));
+  assert.ok(repoPathFor(null).endsWith("/PerformYard"));
+  assert.ok(repoPathFor("evil/other").endsWith("/PerformYard"));
 });
 
 test("slugFor sanitizes prompts to shell-safe worktree names", () => {
