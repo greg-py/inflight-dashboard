@@ -63,8 +63,17 @@ Hidden items move to a collapsed **Hidden** section at the bottom, where they ca
 restored. Hides are held in server memory only — restarting the server clears them.
 
 CI state is computed from individual check runs, not GitHub's rollup: the `QA Code Review`
-human gate is ignored (it's red until a human approves), and a rerun of a flaky check
-counts as passing if any run of that check name passed.
+human gate is excluded from CI (it's red until a human approves), and a rerun of a flaky
+check counts as passing if any run of that check name passed. The QA gate's *pass* state
+is used positively: an approved PR whose gate is fully green reads "QA passed · ready to
+merge" and needs you even if the Jira status hasn't caught up.
+
+Other signals: actionable review threads on your PRs ("N open threads" — unresolved,
+last comment not yours, never counted on approved PRs) pull the item into Needs you with
+an address-review launch; a PR-less ticket whose PR merged in the last 14 days shows
+"PR #N merged"; rows you launched an agent on show "claude launched 20m ago"; and the tab
+title shows the Needs-you count, e.g. "(3) In-flight". Hides and launch memory persist in
+a local gitignored `.state.json`.
 
 ## Setup
 

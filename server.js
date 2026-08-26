@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { execFile, execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -31,6 +31,12 @@ export const CONFIG = {
   // build (e.g. the QA Code Review approval gate). Matched case-insensitively
   // by substring against the check name.
   noisyChecks: ["QA Code Review"],
+  // The human QA approval gate. Excluded from CI, but its pass state is the
+  // true merge-readiness signal: passed only when every run of it is green.
+  qaGateCheck: "QA Code Review",
+  // How far back the merged-PR search looks, for annotating shipped-but-
+  // untransitioned tickets.
+  mergedLookbackDays: 14,
   // Ticket statuses (lowercased) that mean "someone else has it" when the
   // ticket has no open PR.
   waitingStatuses: ["in code review", "ready to test", "in testing", "ready to merge", "blocked"],
@@ -125,6 +131,20 @@ export const effectiveCi = (contextNodes) => {
   return "success";
 };
 
+// The QA gate is passed only when every run of the gate check is green — a
+// stray success among failing runs still means QA hasn't signed off.
+export const qaGateState = (contextNodes) => {
+  const gate = CONFIG.qaGateCheck.toLowerCase();
+  const runs = (contextNodes ?? []).filter((node) =>
+    String(node.name ?? node.context ?? "").toLowerCase().includes(gate),
+  );
+  if (runs.length === 0) return null;
+  const states = runs.map(checkStateOf);
+  if (states.every((state) => state === "success")) return "passed";
+  if (states.some((state) => state === "pending")) return "pending";
+  return "blocked";
+};
+
 // True when you've pushed commits after the latest changes-requested review:
 // the ball is back in the reviewer's court even though GitHub's reviewDecision
 // stays CHANGES_REQUESTED until they re-review. Self-correcting — a newer
@@ -142,13 +162,18 @@ export const categorizePr = (pr) => {
   if (pr.reviewDecision === "CHANGES_REQUESTED" && !changesAddressed(pr)) {
     reasons.push("changes requested");
   }
+  if (pr.openThreads > 0) {
+    reasons.push(`${pr.openThreads} open thread${pr.openThreads === 1 ? "" : "s"}`);
+  }
   if (pr.ci === "failure") reasons.push("CI failing");
   if (pr.mergeable === "CONFLICTING") reasons.push("conflicts with base");
   if (pr.isDraft) reasons.push("draft");
   const defect = reasons.length > 0;
   let bucket = defect ? "needs_you" : "waiting";
   if (bucket === "waiting" && pr.reviewDecision === "APPROVED" && pr.ci !== "pending") {
-    reasons.push("approved · ready to merge");
+    reasons.push(
+      pr.qaGate === "passed" ? "QA passed · ready to merge" : "approved · ready to merge",
+    );
     bucket = "needs_you";
   } else if (bucket === "waiting") {
     if (pr.reviewDecision === "APPROVED") reasons.push("approved");
@@ -164,7 +189,7 @@ export const categorizePr = (pr) => {
 // validated PR number — never from titles or other free text.
 export const launchForPr = (pr) => {
   if (!Number.isInteger(pr.number)) return null;
-  if (pr.reviewDecision === "CHANGES_REQUESTED" && !changesAddressed(pr)) {
+  if ((pr.reviewDecision === "CHANGES_REQUESTED" && !changesAddressed(pr)) || pr.openThreads > 0) {
     return { label: "address review", prompt: `/address-review #${pr.number}`, repo: pr.repo };
   }
   if (pr.mergeable === "CONFLICTING") {
@@ -201,18 +226,40 @@ export const launchForTicket = (item) => {
 export const sectionFor = (item) => {
   if (item.prs.length > 0) {
     const qaHold = CONFIG.qaHoldStatuses.includes(item.status?.toLowerCase());
-    return item.prs.some((pr) => pr.bucket === "needs_you" && (pr.defect || !qaHold))
+    return item.prs.some(
+      (pr) => pr.bucket === "needs_you" && (pr.defect || pr.qaGate === "passed" || !qaHold),
+    )
       ? "needs_you"
       : "waiting";
   }
   return CONFIG.waitingStatuses.includes(item.status.toLowerCase()) ? "waiting" : "no_pr";
 };
 
-// Ids of manually hidden items. In-memory and ephemeral by design — a server
-// restart clears them.
+// Ids of manually hidden items and a memory of launched agent sessions, both
+// persisted to a local gitignored file so a server restart doesn't wipe them.
 export const hiddenIds = new Set();
+export const launches = new Map();
+const STATE_PATH = join(__dirname, ".state.json");
 
-export const buildItems = (jiraIssues, prs) => {
+const loadState = () => {
+  try {
+    const state = JSON.parse(readFileSync(STATE_PATH, "utf8"));
+    for (const id of state.hidden ?? []) hiddenIds.add(id);
+    for (const [id, launch] of Object.entries(state.launches ?? {})) launches.set(id, launch);
+  } catch {}
+};
+loadState();
+
+const saveState = () => {
+  try {
+    writeFileSync(
+      STATE_PATH,
+      JSON.stringify({ hidden: [...hiddenIds], launches: Object.fromEntries(launches) }),
+    );
+  } catch {}
+};
+
+export const buildItems = (jiraIssues, prs, mergedPrs = []) => {
   const items = jiraIssues.map((issue) => ({
     id: issue.key,
     key: issue.key,
@@ -269,6 +316,13 @@ export const buildItems = (jiraIssues, prs) => {
         item.parentPrs = parentPrs.map((pr) => ({ number: pr.number, url: pr.url, repo: pr.repo }));
       }
     }
+    // Display-only: a PR-less ticket whose PR recently merged isn't unstarted.
+    if (item.key && item.prs.length === 0 && !item.parentPrs) {
+      const merged = mergedPrs.filter((pr) => extractTicketKeys(pr).includes(item.key));
+      if (merged.length > 0) {
+        item.mergedPrs = merged.map((pr) => ({ number: pr.number, url: pr.url, repo: pr.repo }));
+      }
+    }
     item.section = sectionFor(item);
     const statusKey = item.status.toLowerCase();
     if (item.section === "waiting" && CONFIG.qaHoldStatuses.includes(statusKey)) {
@@ -294,9 +348,12 @@ export const statusRank = (status) => {
 const githubToken = () =>
   process.env.GITHUB_TOKEN || execSync("gh auth token", { encoding: "utf8" }).trim();
 
-const GITHUB_QUERY = `query($mine: String!, $reviews: String!) {
+const GITHUB_QUERY = `query($mine: String!, $reviews: String!, $merged: String!) {
   mine: search(query: $mine, type: ISSUE, first: 50) { nodes { ...PrFields } }
   reviews: search(query: $reviews, type: ISSUE, first: 50) { nodes { ...PrFields } }
+  merged: search(query: $merged, type: ISSUE, first: 50) { nodes { ... on PullRequest {
+    number title url headRefName repository { nameWithOwner }
+  } } }
 }
 fragment PrFields on PullRequest {
   number title url isDraft headRefName mergeable reviewDecision createdAt updatedAt
@@ -304,6 +361,7 @@ fragment PrFields on PullRequest {
   repository { nameWithOwner }
   viewerLatestReview { state }
   latestOpinionatedReviews(first: 10) { nodes { state submittedAt } }
+  reviewThreads(first: 100) { nodes { isResolved comments(last: 1) { nodes { author { login } } } } }
   commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) {
     nodes { ... on CheckRun { name conclusion status } ... on StatusContext { context state } }
   } } } } }
@@ -327,6 +385,18 @@ const basePrOf = (node, now) => {
     reviewDecision: node.reviewDecision,
     viewerReviewState:
       node.viewerLatestReview?.state === "PENDING" ? null : (node.viewerLatestReview?.state ?? null),
+    // Actionable threads only: unresolved, last word isn't the author's (the
+    // ball is in the author's court), and never on approved PRs — reviewers
+    // here rarely click resolve, so approval supersedes stale threads.
+    openThreads:
+      node.reviewDecision === "APPROVED"
+        ? 0
+        : (node.reviewThreads?.nodes ?? []).filter(
+            (thread) =>
+              !thread.isResolved &&
+              thread.comments?.nodes?.[0]?.author?.login !== node.author?.login,
+          ).length,
+    qaGate: qaGateState(node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes),
     lastCommitAt: lastCommit?.committedDate ?? null,
     changesRequestedAt: changesRequestedTimes.at(-1) ?? null,
     createdAt: node.createdAt,
@@ -350,7 +420,15 @@ export const fetchGithub = async () => {
     },
     body: JSON.stringify({
       query: GITHUB_QUERY,
-      variables: { mine: CONFIG.githubSearch, reviews: CONFIG.githubReviewSearch },
+      variables: {
+        mine: CONFIG.githubSearch,
+        reviews: CONFIG.githubReviewSearch,
+        merged: `${CONFIG.githubSearch.replace("is:open", "is:merged")} merged:>=${new Date(
+          Date.now() - CONFIG.mergedLookbackDays * 86_400_000,
+        )
+          .toISOString()
+          .slice(0, 10)}`,
+      },
     }),
   });
   if (!res.ok) throw new Error(`GitHub ${res.status}: ${(await res.text()).slice(0, 200)}`);
@@ -368,6 +446,13 @@ export const fetchGithub = async () => {
       .map((node) => mapReviewPr(node, now))
       .map((pr) => ({ ...pr, launch: launchForReview(pr) }))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    merged: prNodes(data.data.merged).map((node) => ({
+      number: node.number,
+      title: node.title,
+      url: node.url,
+      headRefName: node.headRefName,
+      repo: node.repository.nameWithOwner,
+    })),
   };
 };
 
@@ -406,7 +491,11 @@ let lastPayload = null;
 
 const getData = async () => {
   const [jira, github] = await Promise.allSettled([fetchJira(), fetchGithub()]);
-  const withHidden = (entry) => ({ ...entry, hidden: hiddenIds.has(entry.id) });
+  const withHidden = (entry) => ({
+    ...entry,
+    hidden: hiddenIds.has(entry.id),
+    launched: launches.get(entry.id) ?? null,
+  });
   return (lastPayload = {
     fetchedAt: new Date().toISOString(),
     sources: {
@@ -417,6 +506,7 @@ const getData = async () => {
     items: buildItems(
       jira.status === "fulfilled" ? jira.value : [],
       github.status === "fulfilled" ? github.value.mine : [],
+      github.status === "fulfilled" ? github.value.merged : [],
     ).map(withHidden),
     reviewRequests: (github.status === "fulfilled" ? github.value.reviewRequests : []).map(
       withHidden,
@@ -583,6 +673,8 @@ const startServer = () => {
             basename(repoPath),
             `${slugFor(launch.prompt)}-${Date.now().toString(36)}`,
           );
+          launches.set(id, { agent, at: Date.now() });
+          saveState();
           pruneStaleWorktrees();
           launchTerminal(
             buildLaunchCommand({
@@ -600,6 +692,7 @@ const startServer = () => {
         if (typeof id === "string" && id) {
           if (req.url === "/api/hide") hiddenIds.add(id);
           else hiddenIds.delete(id);
+          saveState();
         }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true }));

@@ -16,6 +16,7 @@ import {
   slugFor,
   changesAddressed,
   repoPathFor,
+  qaGateState,
 } from "./server.js";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
@@ -80,7 +81,73 @@ const basePr = {
   reviewDecision: "REVIEW_REQUIRED",
   ci: "success",
   ageDays: 2,
+  openThreads: 0,
+  qaGate: null,
 };
+
+test("qaGateState: passed only when every gate run is green", () => {
+  assert.equal(qaGateState([{ name: "QA Code Review", conclusion: "SUCCESS" }]), "passed");
+  assert.equal(
+    qaGateState([
+      { name: "QA Code Review", conclusion: "FAILURE" },
+      { name: "QA Code Review", conclusion: "SUCCESS" },
+    ]),
+    "blocked",
+  );
+  assert.equal(
+    qaGateState([{ name: "QA Code Review", conclusion: null, status: "IN_PROGRESS" }]),
+    "pending",
+  );
+  assert.equal(qaGateState([{ name: "Unit Tests (1/8)", conclusion: "SUCCESS" }]), null);
+});
+
+test("categorizePr: unresolved review threads need you and launch address-review", () => {
+  const withThreads = categorizePr({ ...basePr, openThreads: 3 });
+  assert.equal(withThreads.bucket, "needs_you");
+  assert.equal(withThreads.defect, true);
+  assert.ok(withThreads.reasons.includes("3 open threads"));
+  assert.ok(categorizePr({ ...basePr, openThreads: 1 }).reasons.includes("1 open thread"));
+  assert.equal(
+    launchForPr({ ...launchPr(), openThreads: 2 }).prompt,
+    "/address-review #7364",
+  );
+});
+
+test("categorizePr + sectionFor: a passed QA gate beats the QA hold", () => {
+  const passed = categorizePr({ ...basePr, reviewDecision: "APPROVED", qaGate: "passed" });
+  assert.ok(passed.reasons.includes("QA passed · ready to merge"));
+  assert.equal(passed.bucket, "needs_you");
+  assert.equal(
+    sectionFor({ status: "In Testing", prs: [{ bucket: "needs_you", defect: false, qaGate: "passed" }] }),
+    "needs_you",
+  );
+  assert.equal(
+    sectionFor({ status: "In Testing", prs: [{ bucket: "needs_you", defect: false, qaGate: "blocked" }] }),
+    "waiting",
+  );
+});
+
+test("buildItems annotates PR-less tickets whose PR merged recently", () => {
+  const merged = [
+    {
+      number: 7350,
+      url: "https://github.com/PerformYard/PerformYard/pull/7350",
+      title: "PY-13695 gate visibility",
+      headRefName: "PY-13695-gate",
+      repo: "PerformYard/PerformYard",
+    },
+  ];
+  const items = buildItems(
+    [jiraIssue("PY-13695", { status: { name: "In Testing", statusCategory: { key: "indeterminate" } } })],
+    [],
+    merged,
+  );
+  assert.deepEqual(items[0].mergedPrs, [
+    { number: 7350, url: "https://github.com/PerformYard/PerformYard/pull/7350", repo: "PerformYard/PerformYard" },
+  ]);
+  assert.equal(items[0].section, "waiting");
+  assert.equal(buildItems([jiraIssue("PY-99999")], [], merged)[0].mergedPrs, undefined);
+});
 
 test("categorizePr: changes requested, CI failure, conflicts, and draft all need you", () => {
   for (const overrides of [
@@ -400,6 +467,13 @@ test("mapReviewPr builds a review item with id, author, ci, and age", () => {
     repository: { nameWithOwner: "PerformYard/PerformYard" },
     createdAt: "2026-08-20T00:00:00Z",
     updatedAt: "2026-08-25T00:00:00Z",
+    reviewThreads: {
+      nodes: [
+        { isResolved: false, comments: { nodes: [{ author: { login: "greg-py" } }] } },
+        { isResolved: false, comments: { nodes: [{ author: { login: "marcus-withers" } }] } },
+        { isResolved: true, comments: { nodes: [{ author: { login: "greg-py" } }] } },
+      ],
+    },
     commits: {
       nodes: [
         {
@@ -421,7 +495,15 @@ test("mapReviewPr builds a review item with id, author, ci, and age", () => {
   assert.equal(pr.id, "PerformYard/PerformYard#7400");
   assert.equal(pr.author, "marcus-withers");
   assert.equal(pr.ci, "success");
+  assert.equal(pr.qaGate, "blocked");
   assert.equal(pr.ageDays, 6);
+  assert.equal(pr.openThreads, 1, "counts only unresolved threads where the author isn't last");
+  assert.equal(
+    mapReviewPr({ ...node, reviewDecision: "APPROVED" }, Date.parse("2026-08-26T00:00:00Z"))
+      .openThreads,
+    0,
+    "approval supersedes stale threads",
+  );
 });
 
 test("mapReviewPr falls back to unknown when the author is missing", () => {

@@ -165,6 +165,7 @@
   const BAD_REASONS = ["changes requested", "CI failing", "conflicts with base"];
   const GOOD_REASONS = [
     "CI green",
+    "QA passed · ready to merge",
     "approved · ready to merge",
     "approved · awaiting QA",
     "approved · move to QA",
@@ -180,9 +181,24 @@
     );
 
   const reasonSpan = (reason) => {
-    const cls = BAD_REASONS.includes(reason) ? "r-bad" : GOOD_REASONS.includes(reason) ? "r-good" : "";
+    const cls =
+      BAD_REASONS.includes(reason) || /open thread/.test(reason)
+        ? "r-bad"
+        : GOOD_REASONS.includes(reason)
+          ? "r-good"
+          : "";
     return `<span class="${cls}">${esc(reason)}</span>`;
   };
+
+  const agoText = (ts) => {
+    const mins = Math.max(1, Math.round((Date.now() - ts) / 60_000));
+    return mins < 60 ? `${mins}m ago` : `${Math.round(mins / 60)}h ago`;
+  };
+
+  const launchedNote = (entry) =>
+    entry.launched
+      ? ` <span class="subtask-of">· ${esc(entry.launched.agent)} launched ${agoText(entry.launched.at)}</span>`
+      : "";
 
   const actButton = (action, id) =>
     `<button class="act" data-action="${action}" data-id="${esc(id)}">${action}</button>`;
@@ -216,22 +232,27 @@
         ? ` <span class="subtask-of">· subtask of ${esc(item.parentKey)}</span>`
         : "";
     const prLines = item.prs.map((pr) => prLine(pr, item.id)).join("");
-    const parentPrLinks = (item.parentPrs ?? [])
-      .map((pr) => `<a href="${esc(pr.url)}" target="_blank" rel="noopener">#${pr.number}</a>`)
-      .join(", ");
+    const prRefs = (prs) =>
+      (prs ?? [])
+        .map((pr) => `<a href="${esc(pr.url)}" target="_blank" rel="noopener">#${pr.number}</a>`)
+        .join(", ");
+    const parentPrLinks = prRefs(item.parentPrs);
+    const mergedPrLinks = prRefs(item.mergedPrs);
     const noPr =
       item.key && item.prs.length === 0
         ? `<div class="pr-line">${
             parentPrLinks
               ? `on parent ${esc(item.parentKey)} · ${parentPrLinks}`
-              : "no open PR"
+              : mergedPrLinks
+                ? `PR ${mergedPrLinks} merged`
+                : "no open PR"
           }${launchControls(item.launch, item.id)}</div>`
         : "";
     return `<div class="row">
       <span class="key">${key}</span>
       <div class="body"><div class="summary" title="${esc(item.summary)}">${esc(
         item.summary,
-      )}${subtask}</div>${prLines}${noPr}</div>
+      )}${subtask}${launchedNote(item)}</div>${prLines}${noPr}</div>
       <span class="chip ${esc(item.statusCategory)}">${esc(item.status)}</span>
       ${actButton(action, item.id)}
     </div>`;
@@ -249,7 +270,7 @@
     ].filter(Boolean);
     return `<div class="row">
       <span class="key">${esc(pr.author)}</span>
-      <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
+      <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}${launchedNote(pr)}</div>
         <div class="pr-line">${details.join(" · ")}${launchControls(pr.launch, pr.id)}</div></div>
       <span class="chip">${esc(pr.repo.split("/")[1] ?? pr.repo)}</span>
       ${actButton(action, pr.id)}
@@ -306,6 +327,11 @@
         items.map((item) => workRowHtml(item, "hide")),
       );
     }
+
+    const needsYouCount = data.items.filter(
+      (item) => item.section === "needs_you" && !item.hidden,
+    ).length;
+    document.title = needsYouCount > 0 ? `(${needsYouCount}) In-flight` : "In-flight";
 
     const reviews = data.reviewRequests.filter((pr) => !pr.hidden);
     document.getElementById("section-reviews").innerHTML = sectionHtml(
