@@ -33,6 +33,10 @@ export const CONFIG = {
   // Ticket statuses (lowercased) that mean "someone else has it" when the
   // ticket has no open PR.
   waitingStatuses: ["in code review", "ready to test", "in testing", "ready to merge", "blocked"],
+  // Statuses where QA holds the merge gate: an approved, green PR is waiting
+  // on QA there, not on you. PR defects (changes requested, CI, conflicts,
+  // draft) still count as yours regardless of status.
+  qaHoldStatuses: ["ready to test", "in testing"],
   // Sort order within each section, by lowercased status. "Draft PR" and
   // "Open PR" are the synthetic statuses of PRs with no matched ticket.
   // Unknown statuses sort last.
@@ -108,7 +112,8 @@ export const categorizePr = (pr) => {
   if (pr.ci === "failure") reasons.push("CI failing");
   if (pr.mergeable === "CONFLICTING") reasons.push("conflicts with base");
   if (pr.isDraft) reasons.push("draft");
-  let bucket = reasons.length > 0 ? "needs_you" : "waiting";
+  const defect = reasons.length > 0;
+  let bucket = defect ? "needs_you" : "waiting";
   if (bucket === "waiting" && pr.reviewDecision === "APPROVED" && pr.ci !== "pending") {
     reasons.push("approved · ready to merge");
     bucket = "needs_you";
@@ -117,7 +122,7 @@ export const categorizePr = (pr) => {
   }
   if (pr.ci === "success") reasons.push("CI green");
   if (pr.ci === "pending") reasons.push("CI running");
-  return { bucket, reasons };
+  return { bucket, reasons, defect };
 };
 
 // Derives the agent action for a PR of yours. Prompts are built only from the
@@ -152,7 +157,10 @@ export const launchForTicket = (item) => {
 
 export const sectionFor = (item) => {
   if (item.prs.length > 0) {
-    return item.prs.some((pr) => pr.bucket === "needs_you") ? "needs_you" : "waiting";
+    const qaHold = CONFIG.qaHoldStatuses.includes(item.status?.toLowerCase());
+    return item.prs.some((pr) => pr.bucket === "needs_you" && (pr.defect || !qaHold))
+      ? "needs_you"
+      : "waiting";
   }
   return CONFIG.waitingStatuses.includes(item.status.toLowerCase()) ? "waiting" : "no_pr";
 };
@@ -198,6 +206,14 @@ export const buildItems = (jiraIssues, prs) => {
   }
   for (const item of items) {
     item.section = sectionFor(item);
+    if (item.section === "waiting" && CONFIG.qaHoldStatuses.includes(item.status.toLowerCase())) {
+      item.prs = item.prs.map((pr) => ({
+        ...pr,
+        reasons: pr.reasons.map((reason) =>
+          reason === "approved · ready to merge" ? "approved · awaiting QA" : reason,
+        ),
+      }));
+    }
     item.launch = launchForTicket(item);
   }
   items.sort(

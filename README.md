@@ -7,15 +7,21 @@ who's blocked.
 ## Sections
 
 - **Needs you** — a PR has changes requested, real CI failures, merge conflicts, is a
-  draft, or is approved with settled CI (ready to merge).
-- **Waiting on others** — PRs awaiting review, or tickets sitting in a QA/review status
-  with no open PR.
+  draft, or is approved with settled CI and merging is your move.
+- **Waiting on others** — PRs awaiting review, tickets sitting in a QA/review status
+  with no open PR, or QA-held tickets (`Ready To Test`, `In Testing`) whose PR is
+  approved and green — QA holds the merge gate there, so the PR shows
+  "approved · awaiting QA". PR defects always outrank the QA hold.
 - **No open PR** — assigned tickets that haven't started (or whose PRs already merged).
 - **Reviews requested of you** — other people's open PRs where your review is requested,
   oldest first.
 
 PRs are linked to tickets automatically by extracting `PY-####` from the branch name and
 PR title. PRs with no ticket key show up as their own rows so nothing goes missing.
+
+Subtasks never roll up: a QA bug or design subtask assigned to you is its own row with
+its own categorization, and its parent keeps the categorization derived from the parent's
+own PRs and status. One piece of work, one row.
 
 Hovering an actionable line also reveals **launch controls**: the derived agent action
 (`implement` → `/implement-ticket`, `address review` → `/address-review`,

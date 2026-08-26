@@ -109,12 +109,49 @@ test("categorizePr: clean PR awaiting review waits, with age", () => {
 });
 
 test("sectionFor: PR buckets win; ticket-only falls back to status", () => {
-  assert.equal(sectionFor({ prs: [{ bucket: "needs_you" }, { bucket: "waiting" }] }), "needs_you");
-  assert.equal(sectionFor({ prs: [{ bucket: "waiting" }] }), "waiting");
+  assert.equal(
+    sectionFor({ status: "In Progress", prs: [{ bucket: "needs_you", defect: true }, { bucket: "waiting" }] }),
+    "needs_you",
+  );
+  assert.equal(sectionFor({ status: "In Progress", prs: [{ bucket: "waiting" }] }), "waiting");
   assert.equal(sectionFor({ prs: [], status: "In Testing" }), "waiting");
   assert.equal(sectionFor({ prs: [], status: "Ready To Test" }), "waiting");
   assert.equal(sectionFor({ prs: [], status: "TO DO" }), "no_pr");
   assert.equal(sectionFor({ prs: [], status: "READY" }), "no_pr");
+});
+
+test("sectionFor: QA-held tickets treat approved-ready-to-merge as waiting, defects as yours", () => {
+  const merge = { bucket: "needs_you", defect: false };
+  const defect = { bucket: "needs_you", defect: true };
+  assert.equal(sectionFor({ status: "In Testing", prs: [merge] }), "waiting");
+  assert.equal(sectionFor({ status: "Ready To Test", prs: [merge] }), "waiting");
+  assert.equal(sectionFor({ status: "In Testing", prs: [defect] }), "needs_you");
+  assert.equal(sectionFor({ status: "READY TO MERGE", prs: [merge] }), "needs_you");
+  assert.equal(sectionFor({ status: "In Code Review", prs: [merge] }), "needs_you");
+});
+
+test("categorizePr marks defect only for real problems, not merge-readiness", () => {
+  assert.equal(categorizePr({ ...basePr, reviewDecision: "APPROVED" }).defect, false);
+  assert.equal(categorizePr({ ...basePr, ci: "failure" }).defect, true);
+});
+
+test("buildItems relabels merge-readiness as awaiting QA on QA-held tickets", () => {
+  const pr = {
+    number: 7351,
+    title: "PY-13940 punchlist",
+    headRefName: "PY-13940-punchlist",
+    repo: "PerformYard/PerformYard",
+    updatedAt: "2026-08-25T12:00:00Z",
+    bucket: "needs_you",
+    defect: false,
+    reasons: ["approved · ready to merge", "CI green"],
+  };
+  const items = buildItems(
+    [jiraIssue("PY-13940", { status: { name: "In Testing", statusCategory: { key: "indeterminate" } } })],
+    [pr],
+  );
+  assert.equal(items[0].section, "waiting");
+  assert.deepEqual(items[0].prs[0].reasons, ["approved · awaiting QA", "CI green"]);
 });
 
 const jiraIssue = (key, overrides = {}) => ({
