@@ -6,15 +6,19 @@ who's blocked.
 
 ## Sections
 
-- **Needs you** — a PR has changes requested, real CI failures, merge conflicts, is a
-  draft, or is approved with settled CI and merging is your move.
-- **Waiting on others** — PRs awaiting review, tickets sitting in a QA/review status
+- **Needs you** — a PR has changes requested (and you haven't pushed fixes yet), real CI
+  failures, merge conflicts, is a draft, or is approved with settled CI and the next move
+  is yours ("ready to merge", or "move to QA" for pre-QA statuses like `In Code Review`).
+- **Waiting on others** — PRs awaiting review, changes-requested PRs where you've already
+  pushed fixes ("changes pushed · awaiting re-review" — detected by the last commit being
+  newer than the latest changes-requested review), tickets sitting in a QA/review status
   with no open PR, or QA-held tickets (`Ready To Test`, `In Testing`) whose PR is
   approved and green — QA holds the merge gate there, so the PR shows
   "approved · awaiting QA". PR defects always outrank the QA hold.
 - **No open PR** — assigned tickets that haven't started (or whose PRs already merged).
 - **Reviews requested of you** — other people's open PRs where your review is requested,
-  oldest first.
+  oldest first. A request where you already have a review on record is marked
+  "re-requested" and launches `/verify-review` instead of `/deep-review`.
 
 PRs are linked to tickets automatically by extracting `PY-####` from the branch name and
 PR title. PRs with no ticket key show up as their own rows so nothing goes missing.

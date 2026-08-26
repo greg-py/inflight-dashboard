@@ -156,7 +156,13 @@
     { id: "no_pr", label: "No open PR" },
   ];
   const BAD_REASONS = ["changes requested", "CI failing", "conflicts with base"];
-  const GOOD_REASONS = ["CI green", "approved · ready to merge", "approved · awaiting QA", "approved"];
+  const GOOD_REASONS = [
+    "CI green",
+    "approved · ready to merge",
+    "approved · awaiting QA",
+    "approved · move to QA",
+    "approved",
+  ];
 
   let lastFetched = null;
   let lastData = null;
@@ -223,6 +229,7 @@
     const details = [
       `<a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.repo)}#${pr.number}</a>`,
       `open ${pr.ageDays}d`,
+      pr.viewerReviewState ? "re-requested" : "",
       pr.isDraft ? "draft" : "",
       ciSpan,
     ].filter(Boolean);

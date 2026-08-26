@@ -37,6 +37,9 @@ export const CONFIG = {
   // on QA there, not on you. PR defects (changes requested, CI, conflicts,
   // draft) still count as yours regardless of status.
   qaHoldStatuses: ["ready to test", "in testing"],
+  // Statuses before QA in the pipeline: an approved, green PR there isn't
+  // "ready to merge" (merge is QA-gated) — the move is handing it to QA.
+  preQaStatuses: ["in progress", "in code review"],
   // Sort order within each section, by lowercased status. "Draft PR" and
   // "Open PR" are the synthetic statuses of PRs with no matched ticket.
   // Unknown statuses sort last.
@@ -106,9 +109,23 @@ export const effectiveCi = (contextNodes) => {
   return "success";
 };
 
+// True when you've pushed commits after the latest changes-requested review:
+// the ball is back in the reviewer's court even though GitHub's reviewDecision
+// stays CHANGES_REQUESTED until they re-review. Self-correcting — a newer
+// changes-requested review flips it back.
+export const changesAddressed = (pr) =>
+  Boolean(
+    pr.reviewDecision === "CHANGES_REQUESTED" &&
+      pr.changesRequestedAt &&
+      pr.lastCommitAt &&
+      Date.parse(pr.lastCommitAt) > Date.parse(pr.changesRequestedAt),
+  );
+
 export const categorizePr = (pr) => {
   const reasons = [];
-  if (pr.reviewDecision === "CHANGES_REQUESTED") reasons.push("changes requested");
+  if (pr.reviewDecision === "CHANGES_REQUESTED" && !changesAddressed(pr)) {
+    reasons.push("changes requested");
+  }
   if (pr.ci === "failure") reasons.push("CI failing");
   if (pr.mergeable === "CONFLICTING") reasons.push("conflicts with base");
   if (pr.isDraft) reasons.push("draft");
@@ -118,7 +135,9 @@ export const categorizePr = (pr) => {
     reasons.push("approved · ready to merge");
     bucket = "needs_you";
   } else if (bucket === "waiting") {
-    reasons.push(pr.reviewDecision === "APPROVED" ? "approved" : `awaiting review · ${pr.ageDays}d`);
+    if (pr.reviewDecision === "APPROVED") reasons.push("approved");
+    else if (changesAddressed(pr)) reasons.push("changes pushed · awaiting re-review");
+    else reasons.push(`awaiting review · ${pr.ageDays}d`);
   }
   if (pr.ci === "success") reasons.push("CI green");
   if (pr.ci === "pending") reasons.push("CI running");
@@ -129,7 +148,7 @@ export const categorizePr = (pr) => {
 // validated PR number — never from titles or other free text.
 export const launchForPr = (pr) => {
   if (!Number.isInteger(pr.number)) return null;
-  if (pr.reviewDecision === "CHANGES_REQUESTED") {
+  if (pr.reviewDecision === "CHANGES_REQUESTED" && !changesAddressed(pr)) {
     return { label: "address review", prompt: `/address-review #${pr.number}`, repo: pr.repo };
   }
   if (pr.mergeable === "CONFLICTING") {
@@ -145,9 +164,13 @@ export const launchForPr = (pr) => {
   return null;
 };
 
+// A review request where you already have an opinionated review on record is a
+// re-review (verify the author addressed your feedback), not a first pass.
 export const launchForReview = (pr) => {
   if (!Number.isInteger(pr.number)) return null;
-  return { label: "review", prompt: `/deep-review #${pr.number}`, repo: pr.repo };
+  return pr.viewerReviewState
+    ? { label: "re-review", prompt: `/verify-review #${pr.number}`, repo: pr.repo }
+    : { label: "review", prompt: `/deep-review #${pr.number}`, repo: pr.repo };
 };
 
 export const launchForTicket = (item) => {
@@ -204,15 +227,21 @@ export const buildItems = (jiraIssues, prs) => {
       });
     }
   }
+  const relabelMerge = (item, replacement) => {
+    item.prs = item.prs.map((pr) => ({
+      ...pr,
+      reasons: pr.reasons.map((reason) =>
+        reason === "approved · ready to merge" ? replacement : reason,
+      ),
+    }));
+  };
   for (const item of items) {
     item.section = sectionFor(item);
-    if (item.section === "waiting" && CONFIG.qaHoldStatuses.includes(item.status.toLowerCase())) {
-      item.prs = item.prs.map((pr) => ({
-        ...pr,
-        reasons: pr.reasons.map((reason) =>
-          reason === "approved · ready to merge" ? "approved · awaiting QA" : reason,
-        ),
-      }));
+    const statusKey = item.status.toLowerCase();
+    if (item.section === "waiting" && CONFIG.qaHoldStatuses.includes(statusKey)) {
+      relabelMerge(item, "approved · awaiting QA");
+    } else if (CONFIG.preQaStatuses.includes(statusKey)) {
+      relabelMerge(item, "approved · move to QA");
     }
     item.launch = launchForTicket(item);
   }
@@ -240,26 +269,39 @@ fragment PrFields on PullRequest {
   number title url isDraft headRefName mergeable reviewDecision createdAt updatedAt
   author { login }
   repository { nameWithOwner }
-  commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) {
+  viewerLatestReview { state }
+  latestOpinionatedReviews(first: 10) { nodes { state submittedAt } }
+  commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) {
     nodes { ... on CheckRun { name conclusion status } ... on StatusContext { context state } }
   } } } } }
 }`;
 
-const basePrOf = (node, now) => ({
-  number: node.number,
-  title: node.title,
-  url: node.url,
-  repo: node.repository.nameWithOwner,
-  author: node.author?.login ?? "unknown",
-  isDraft: node.isDraft,
-  headRefName: node.headRefName,
-  mergeable: node.mergeable,
-  reviewDecision: node.reviewDecision,
-  createdAt: node.createdAt,
-  updatedAt: node.updatedAt,
-  ci: effectiveCi(node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes),
-  ageDays: Math.max(0, Math.floor((now - Date.parse(node.createdAt)) / 86_400_000)),
-});
+const basePrOf = (node, now) => {
+  const lastCommit = node.commits?.nodes?.[0]?.commit;
+  const changesRequestedTimes = (node.latestOpinionatedReviews?.nodes ?? [])
+    .filter((review) => review.state === "CHANGES_REQUESTED" && review.submittedAt)
+    .map((review) => review.submittedAt)
+    .sort();
+  return {
+    number: node.number,
+    title: node.title,
+    url: node.url,
+    repo: node.repository.nameWithOwner,
+    author: node.author?.login ?? "unknown",
+    isDraft: node.isDraft,
+    headRefName: node.headRefName,
+    mergeable: node.mergeable,
+    reviewDecision: node.reviewDecision,
+    viewerReviewState:
+      node.viewerLatestReview?.state === "PENDING" ? null : (node.viewerLatestReview?.state ?? null),
+    lastCommitAt: lastCommit?.committedDate ?? null,
+    changesRequestedAt: changesRequestedTimes.at(-1) ?? null,
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
+    ci: effectiveCi(lastCommit?.statusCheckRollup?.contexts?.nodes),
+    ageDays: Math.max(0, Math.floor((now - Date.parse(node.createdAt)) / 86_400_000)),
+  };
+};
 
 export const mapReviewPr = (node, now) => {
   const pr = basePrOf(node, now);

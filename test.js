@@ -12,6 +12,7 @@ import {
   launchForReview,
   launchForTicket,
   buildTerminalCommand,
+  changesAddressed,
 } from "./server.js";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
@@ -135,6 +136,70 @@ test("categorizePr marks defect only for real problems, not merge-readiness", ()
   assert.equal(categorizePr({ ...basePr, ci: "failure" }).defect, true);
 });
 
+const crPr = (lastCommitAt, changesRequestedAt) => ({
+  ...basePr,
+  number: 7364,
+  repo: "PerformYard/PerformYard",
+  reviewDecision: "CHANGES_REQUESTED",
+  lastCommitAt,
+  changesRequestedAt,
+});
+
+test("changesAddressed: pushed after the changes-requested review flips the court", () => {
+  assert.equal(changesAddressed(crPr("2026-08-25T12:00:00Z", "2026-08-24T12:00:00Z")), true);
+  assert.equal(changesAddressed(crPr("2026-08-23T12:00:00Z", "2026-08-24T12:00:00Z")), false);
+  assert.equal(changesAddressed(crPr(null, "2026-08-24T12:00:00Z")), false);
+  assert.equal(changesAddressed(crPr("2026-08-25T12:00:00Z", null)), false);
+});
+
+test("categorizePr: changes requested with fixes pushed waits on re-review", () => {
+  const addressed = categorizePr(crPr("2026-08-25T12:00:00Z", "2026-08-24T12:00:00Z"));
+  assert.equal(addressed.bucket, "waiting");
+  assert.equal(addressed.defect, false);
+  assert.ok(addressed.reasons.includes("changes pushed · awaiting re-review"));
+  const reReviewed = categorizePr(crPr("2026-08-24T12:00:00Z", "2026-08-25T12:00:00Z"));
+  assert.equal(reReviewed.bucket, "needs_you");
+  assert.ok(reReviewed.reasons.includes("changes requested"));
+});
+
+test("launchForPr: no address-review once fixes are pushed; conflicts still launch", () => {
+  assert.equal(launchForPr(crPr("2026-08-25T12:00:00Z", "2026-08-24T12:00:00Z")), null);
+  assert.equal(
+    launchForPr({ ...crPr("2026-08-25T12:00:00Z", "2026-08-24T12:00:00Z"), mergeable: "CONFLICTING" })
+      .label,
+    "resolve conflicts",
+  );
+  assert.equal(launchForPr(crPr("2026-08-23T12:00:00Z", "2026-08-24T12:00:00Z")).label, "address review");
+});
+
+test("launchForReview: prior review of yours makes it a verify-review re-review", () => {
+  assert.deepEqual(launchForReview({ ...launchPr(), viewerReviewState: "CHANGES_REQUESTED" }), {
+    label: "re-review",
+    prompt: "/verify-review #7364",
+    repo: "PerformYard/PerformYard",
+  });
+  assert.equal(launchForReview({ ...launchPr(), viewerReviewState: null }).prompt, "/deep-review #7364");
+});
+
+test("buildItems relabels merge-readiness as move-to-QA on pre-QA tickets", () => {
+  const pr = {
+    number: 7392,
+    title: "PY-13583 registry",
+    headRefName: "PY-13583-tool-registry",
+    repo: "PerformYard/PerformYard",
+    updatedAt: "2026-08-25T12:00:00Z",
+    bucket: "needs_you",
+    defect: false,
+    reasons: ["approved · ready to merge", "CI green"],
+  };
+  const items = buildItems(
+    [jiraIssue("PY-13583", { status: { name: "In Code Review", statusCategory: { key: "indeterminate" } } })],
+    [pr],
+  );
+  assert.equal(items[0].section, "needs_you");
+  assert.deepEqual(items[0].prs[0].reasons, ["approved · move to QA", "CI green"]);
+});
+
 test("buildItems relabels merge-readiness as awaiting QA on QA-held tickets", () => {
   const pr = {
     number: 7351,
@@ -172,6 +237,7 @@ test("buildItems joins PRs to tickets by extracted key", () => {
     headRefName: "PY-13548-calendar",
     updatedAt: "2026-08-25T12:00:00Z",
     bucket: "waiting",
+    reasons: ["awaiting review · 1d"],
   };
   const items = buildItems([jiraIssue("PY-13548")], [pr]);
   assert.equal(items.length, 1);
