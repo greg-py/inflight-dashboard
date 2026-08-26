@@ -38,6 +38,18 @@ Parse `$ARGUMENTS`:
 
 If the ticket is epic-scale (many independent AC clusters that clearly want separate PRs), say so before planning — recommend splitting or the `implement-pitstop` flow rather than producing one monster PR.
 
+## Subtask Tickets — Ride the Parent's Branch and PR
+
+The standard workflow for **subtask tickets** (issue type is a sub-task: QA bug subtasks, UI/UX subtasks, design tweaks filed under a parent story) is to commit the work onto the **parent ticket's existing branch and PR** — never to cut a new branch or open a new PR for the subtask. Detect this in Phase 0: the ticket's issue type is a sub-task variant and it has a `parent` field.
+
+When the target is a subtask:
+
+1. **Resolve the parent's in-flight work.** From the parent key, find the open PR and branch: `gh pr list --repo <repo> --search "<PARENT-KEY> in:title" --state open` plus `git branch -a | grep -i <parent-key>`. That branch is the working branch for the subtask.
+2. **Base the worktree on the parent branch, not the repo default.** In Phase 2: `git fetch origin <parent-branch>` and worktree from `origin/<parent-branch>`. In Phase 5, `git switch <parent-branch>` (tracking the remote) instead of creating a new branch.
+3. **Plan and ship against it.** The Phase 4 plan names the parent branch and says no new PR will be created. Phase 7 pushes to the parent branch and **skips `gh pr create`** — the parent's existing PR picks up the commits. Reference the subtask key in the commit message(s).
+4. **If the parent has no open branch or PR** (subtask picked up ahead of the parent's work), stop and ask the user how to proceed — start the parent's branch, or work the subtask standalone. Do not silently default to a new subtask branch/PR.
+5. **Scope stays the subtask's own AC.** The parent's remaining scope is out of bounds — the subtask rides the parent's branch, it doesn't absorb the parent's work.
+
 ## Phase 1 — Exhaustive Context Sweep
 
 Gather everything *before* forming any opinion about the implementation. Run independent fetches **in parallel** (same tool block; fan out subagents for slow sources like Slack + Confluence). Missing sources are noted, never fatal.
