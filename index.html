@@ -58,6 +58,12 @@
   }
   .topbar h1 { font-size: 16px; font-weight: 600; margin: 0; }
   #refreshed { font-size: 12px; color: var(--text-3); }
+  #agent-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #agent-controls .agent-name { font-size: 11.5px; color: var(--text-3); margin-left: 10px; }
+  #agent-controls select {
+    font-size: 11.5px; color: var(--text-2); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; max-width: 170px;
+  }
   .banner {
     margin: 0 0 12px; padding: 8px 12px; border-radius: 8px;
     background: var(--amber-bg); color: var(--amber); font-size: 12.5px;
@@ -127,6 +133,7 @@
 <main>
   <div class="topbar">
     <h1>In-flight</h1>
+    <span id="agent-controls"></span>
     <span id="refreshed">loading…</span>
   </div>
   <div id="banners"></div>
@@ -246,7 +253,38 @@
     `<div class="section-head ${cls}">${label} · ${rows.length}</div>` +
     (rows.length ? rows.join("") : `<div class="empty">nothing here</div>`);
 
+  let controlsBuilt = false;
+  const buildAgentControls = (agentOptions) => {
+    if (controlsBuilt || !agentOptions) return;
+    controlsBuilt = true;
+    const select = (id, values, defaultLabel, title) => {
+      const options = [`<option value="">${esc(defaultLabel)}</option>`]
+        .concat(values.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`))
+        .join("");
+      return `<select id="${id}" title="${esc(title)}">${options}</select>`;
+    };
+    document.getElementById("agent-controls").innerHTML = Object.entries(agentOptions)
+      .map(([agent, opts]) => {
+        const modelLabel = opts.defaultModel ? `default (${opts.defaultModel})` : "default model";
+        const effortLabel = opts.defaultEffort
+          ? `default (${opts.defaultEffort})`
+          : "default effort";
+        return (
+          `<span class="agent-name">${esc(agent)}</span>` +
+          select(`${agent}-model`, opts.models, modelLabel, `${agent} model for launched sessions`) +
+          select(`${agent}-effort`, opts.efforts, effortLabel, `${agent} effort for launched sessions`)
+        );
+      })
+      .join("");
+  };
+
+  const agentSelection = (agent) => ({
+    model: document.getElementById(`${agent}-model`)?.value ?? "",
+    effort: document.getElementById(`${agent}-effort`)?.value ?? "",
+  });
+
   const render = (data) => {
+    buildAgentControls(data.agentOptions);
     const banners = [];
     for (const [name, source] of Object.entries(data.sources)) {
       if (!source.ok) banners.push(`<div class="banner">${esc(name)}: ${esc(source.error)}</div>`);
@@ -338,7 +376,7 @@
         const res = await fetch("/api/launch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id, prNumber: pr ? Number(pr) : null, agent }),
+          body: JSON.stringify({ id, prNumber: pr ? Number(pr) : null, agent, ...agentSelection(agent) }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         flash(launchButton, "launched ✓");

@@ -40,6 +40,16 @@ so agents always begin from up-to-date master/main and check out PR branches the
 Clean worktrees older than 72h are pruned on the next launch; dirty ones are never
 touched.
 
+Sessions launch with each CLI's own configured default model and reasoning effort. The
+topbar shows a model and effort selector per agent with the config default pre-selected
+(read from `~/.claude/settings.json` and `~/.codex/config.toml`); picking a different
+value passes `--model`/`--effort` (claude) or `-m`/`-c model_reasoning_effort=…` (codex)
+for that session only. Selectable values are whitelisted constants in `server.js`.
+
+The dashboard's skill prompts also work in Codex: the five skills are symlinked into
+`~/.codex/skills/` from `~/.claude/skills/`, so both agents load the same skill
+definitions.
+
 Prompts are built server-side from validated ticket keys and PR numbers only. Repo → local
 path mapping and agent commands are constants in `server.js`. The server binds to
 127.0.0.1 only.

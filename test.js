@@ -12,6 +12,7 @@ import {
   launchForReview,
   launchForTicket,
   buildLaunchCommand,
+  buildAgentInvocation,
   slugFor,
   changesAddressed,
 } from "./server.js";
@@ -351,22 +352,27 @@ test("buildLaunchCommand fetches, adds a detached worktree, and starts the agent
       repoPath: "/Users/gking/Projects/PerformYard",
       worktreePath: "/Users/gking/.cache/inflight-worktrees/PerformYard/resolve-conflicts-7287-x1",
       branch: "master",
-      agentCmd: "claude",
-      prompt: "/resolve-conflicts #7287",
+      invocation: "claude '/resolve-conflicts #7287'",
     }),
     "cd '/Users/gking/Projects/PerformYard' && git fetch origin && " +
       "git worktree add --detach '/Users/gking/.cache/inflight-worktrees/PerformYard/resolve-conflicts-7287-x1' 'origin/master' && " +
       "cd '/Users/gking/.cache/inflight-worktrees/PerformYard/resolve-conflicts-7287-x1' && " +
       "claude '/resolve-conflicts #7287'",
   );
-  assert.ok(
-    buildLaunchCommand({
-      repoPath: "/tmp",
-      worktreePath: "/tmp/wt",
-      branch: "main",
-      agentCmd: "codex",
-      prompt: "it's here",
-    }).endsWith("codex 'it'\\''s here'"),
+});
+
+test("buildAgentInvocation applies model and effort overrides per CLI, quoting prompts", () => {
+  assert.equal(buildAgentInvocation("claude", {}, "/deep-review #7388"), "claude '/deep-review #7388'");
+  assert.equal(
+    buildAgentInvocation("claude", { model: "opus[1m]", effort: "high" }, "/address-review #7364"),
+    "claude --model 'opus[1m]' --effort 'high' '/address-review #7364'",
+  );
+  assert.equal(
+    buildAgentInvocation("codex", { model: "gpt-5.6-sol", effort: "xhigh" }, "it's here"),
+    `codex -m 'gpt-5.6-sol' -c 'model_reasoning_effort="xhigh"' 'it'\\''s here'`,
+  );
+  assert.equal(buildAgentInvocation("codex", { effort: "low" }, "/deep-review #7388"),
+    `codex -c 'model_reasoning_effort="low"' '/deep-review #7388'`,
   );
 });
 

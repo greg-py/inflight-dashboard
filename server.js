@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { execFile, execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -64,8 +65,21 @@ export const CONFIG = {
   },
   defaultRepoPath: "/Users/gking/Projects/PerformYard",
   // Coding agent CLIs the launch buttons can start, keyed by the name the UI
-  // sends. The prompt is passed as the initial message.
-  agents: { claude: "claude", codex: "codex" },
+  // sends. The prompt is passed as the initial message. `models`/`efforts` are
+  // the selectable per-session overrides; the config-file default is always
+  // offered first and used when no override is picked.
+  agents: {
+    claude: {
+      cmd: "claude",
+      models: ["fable", "opus", "opus[1m]", "sonnet", "haiku"],
+      efforts: ["low", "medium", "high", "xhigh", "max"],
+    },
+    codex: {
+      cmd: "codex",
+      models: [],
+      efforts: ["minimal", "low", "medium", "high", "xhigh"],
+    },
+  },
   // Every launch runs in a fresh worktree detached at the latest
   // origin/<default branch>, created here — never in the main checkout.
   worktreeRoot: "/Users/gking/.cache/inflight-worktrees",
@@ -394,6 +408,17 @@ const getData = async () => {
     reviewRequests: (github.status === "fulfilled" ? github.value.reviewRequests : []).map(
       withHidden,
     ),
+    agentOptions: Object.fromEntries(
+      Object.entries(CONFIG.agents).map(([name, agent]) => [
+        name,
+        {
+          models: agent.models,
+          efforts: agent.efforts,
+          defaultModel: agentDefaults[name]?.model ?? null,
+          defaultEffort: agentDefaults[name]?.effort ?? null,
+        },
+      ]),
+    ),
   });
 };
 
@@ -408,6 +433,37 @@ const findLaunchTarget = (id, prNumber) => {
 };
 
 const shellQuote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
+
+// Defaults each CLI would use on its own, read from its config file so the UI
+// can show them as the pre-selected option.
+const readAgentDefaults = () => {
+  const defaults = { claude: { model: null, effort: null }, codex: { model: null, effort: null } };
+  try {
+    const settings = JSON.parse(readFileSync(join(homedir(), ".claude/settings.json"), "utf8"));
+    defaults.claude = { model: settings.model ?? null, effort: settings.effort ?? null };
+  } catch {}
+  try {
+    const toml = readFileSync(join(homedir(), ".codex/config.toml"), "utf8");
+    const value = (key) => toml.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m"))?.[1] ?? null;
+    defaults.codex = { model: value("model"), effort: value("model_reasoning_effort") };
+  } catch {}
+  return defaults;
+};
+export const agentDefaults = readAgentDefaults();
+
+export const buildAgentInvocation = (agentKey, { model, effort } = {}, prompt) => {
+  const agent = CONFIG.agents[agentKey];
+  const parts = [agent.cmd];
+  if (agentKey === "claude") {
+    if (model) parts.push("--model", shellQuote(model));
+    if (effort) parts.push("--effort", shellQuote(effort));
+  } else if (agentKey === "codex") {
+    if (model) parts.push("-m", shellQuote(model));
+    if (effort) parts.push("-c", shellQuote(`model_reasoning_effort="${effort}"`));
+  }
+  parts.push(shellQuote(prompt));
+  return parts.join(" ");
+};
 
 export const slugFor = (prompt) =>
   String(prompt)
@@ -437,13 +493,13 @@ const defaultBranchOf = (repoPath) => {
   return branch;
 };
 
-export const buildLaunchCommand = ({ repoPath, worktreePath, branch, agentCmd, prompt }) =>
+export const buildLaunchCommand = ({ repoPath, worktreePath, branch, invocation }) =>
   [
     `cd ${shellQuote(repoPath)}`,
     "git fetch origin",
     `git worktree add --detach ${shellQuote(worktreePath)} ${shellQuote(`origin/${branch}`)}`,
     `cd ${shellQuote(worktreePath)}`,
-    `${agentCmd} ${shellQuote(prompt)}`,
+    invocation,
   ].join(" && ");
 
 const pruneStaleWorktrees = () => {
@@ -486,12 +542,15 @@ const startServer = () => {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(body);
       } else if (req.method === "POST" && req.url === "/api/launch") {
-        const { id, prNumber, agent } = JSON.parse((await readBody(req)) || "{}");
-        const agentCmd = CONFIG.agents[agent];
+        const { id, prNumber, agent, model, effort } = JSON.parse((await readBody(req)) || "{}");
+        const agentDef = CONFIG.agents[agent];
         const launch = typeof id === "string" ? findLaunchTarget(id, prNumber) : null;
-        if (!agentCmd || !launch) {
+        const modelOk =
+          !model || agentDef?.models.includes(model) || model === agentDefaults[agent]?.model;
+        const effortOk = !effort || agentDef?.efforts.includes(effort);
+        if (!agentDef || !launch || !modelOk || !effortOk) {
           res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "unknown item, PR, or agent" }));
+          res.end(JSON.stringify({ error: "unknown item, PR, agent, model, or effort" }));
         } else {
           const repoPath = CONFIG.repoPaths[launch.repo] ?? CONFIG.defaultRepoPath;
           const worktreePath = join(
@@ -505,8 +564,7 @@ const startServer = () => {
               repoPath,
               worktreePath,
               branch: defaultBranchOf(repoPath),
-              agentCmd,
-              prompt: launch.prompt,
+              invocation: buildAgentInvocation(agent, { model, effort }, launch.prompt),
             }),
           );
           res.writeHead(200, { "Content-Type": "application/json" });
