@@ -110,6 +110,30 @@ focus. Tokens never leave the server process — the browser only talks to local
 npm test
 ```
 
+## Agentic supervision
+
+The dashboard is also an API for agents (`/api/data`, `/api/launch`, `/api/journal`), and
+three layers build on that:
+
+- **Session status**: sessions launched from the dashboard report progress by writing
+  `.agent-status.json` at their worktree root (the bundled skills know to do this). Rows
+  show "awaiting your approval: …", "blocked: …", or "done: …", the topbar counts
+  sessions that await you, and the file never counts as worktree dirt.
+- **Auto-diagnosis**: red signals get one read-only headless `claude -p` run each (gh
+  inspection commands only, cached per commit/review state, `DIAGNOSE=off` disables):
+  failing CI is classified "likely flake — rerun-safe" vs "cause: …", and
+  changes-requested reviews get a one-line "wants: …" digest.
+- **The supervisor**: the bundled `dashboard-supervisor` skill runs one supervision pass —
+  fetch the data, act on safe signals (launch resolve-conflicts on new conflicts, rerun
+  flake-diagnosed CI, launch address-review/fix-CI, pre-launch review drafts), journal
+  everything, and notify on sessions awaiting approval. Run it on a cadence with
+  `/loop 10m /dashboard-supervisor`. It never ships, merges, posts, or writes to Jira —
+  launched sessions still stop at their own approval gates.
+
+Every agent action (yours, the supervisor's, or a diagnosis) lands in the collapsed
+**Activity** card, backed by a gitignored `.journal.jsonl`. Launching an item that already
+has a live session returns 409 — clear the session note to relaunch.
+
 ## Scope rules
 
 This tool stays small on purpose. Baked-in constraints:

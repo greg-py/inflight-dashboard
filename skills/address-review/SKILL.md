@@ -183,3 +183,13 @@ If **nothing** requires a change or a response (all items NO ACTION), output the
 ## Cleanup
 
 Remove the ephemeral worktree (`git worktree remove --force`) and any scratchpad clone — including when the run is abandoned before execution. Never leave a worktree with uncommitted approved work without telling the user exactly where it is.
+
+## Session Status File (inflight dashboard)
+
+If your initial working directory is under `~/.cache/inflight-worktrees/`, this session was launched from the local inflight dashboard — keep it informed by writing `.agent-status.json` at the worktree root at every phase transition:
+
+```json
+{ "state": "working", "detail": "<one short line: current phase, or what you're waiting for>" }
+```
+
+States: `working` (default), `awaiting-approval` (stopped at an approval gate waiting for the user), `blocked` (waiting on an answer to a question), `done` (final report delivered; work pushed or complete). Update `detail` on every transition. Never commit this file — the dashboard reads it and cleans it up.

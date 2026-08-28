@@ -207,3 +207,13 @@ If `--no-pr`: skip push and PR, report the worktree path and branch name, and le
 ## Cleanup
 
 After a successful push, remove the ephemeral worktree (`git worktree remove --force <path>`) — the branch lives on the remote. If the run is abandoned mid-way: remove the worktree only if it holds no unpushed commits; otherwise leave it and tell the user exactly where the work is and how to resume. Remove any scratchpad clone.
+
+## Session Status File (inflight dashboard)
+
+If your initial working directory is under `~/.cache/inflight-worktrees/`, this session was launched from the local inflight dashboard — keep it informed by writing `.agent-status.json` at the worktree root at every phase transition:
+
+```json
+{ "state": "working", "detail": "<one short line: current phase, or what you're waiting for>" }
+```
+
+States: `working` (default), `awaiting-approval` (stopped at an approval gate waiting for the user), `blocked` (waiting on an answer to a question), `done` (final report delivered; work pushed or complete). Update `detail` on every transition. Never commit this file — the dashboard reads it and cleans it up.

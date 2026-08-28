@@ -1,4 +1,5 @@
 .env
 .state.json
+.journal.jsonl
 node_modules/
 .DS_Store

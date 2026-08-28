@@ -18,6 +18,9 @@ import {
   repoPathFor,
   qaGateState,
   worktreeStatusOf,
+  sessionStatusOf,
+  parseDiagnosis,
+  diagnosisKeyFor,
 } from "./server.js";
 import { execSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -462,7 +465,7 @@ test("slugFor sanitizes prompts to shell-safe worktree names", () => {
   assert.equal(slugFor("Investigate and fix the failing CI checks on PR #7411."), "investigate-and-fix-the-failing-ci-checks-on-pr-7411");
 });
 
-test("worktreeStatusOf: gone, dirty, unpushed, clean", () => {
+test("worktreeStatusOf: gone, dirty, unpushed, clean — and ignores the status file", () => {
   assert.deepEqual(worktreeStatusOf("/nonexistent/inflight-test-path"), { state: "gone" });
   const dir = mkdtempSync(join(tmpdir(), "inflight-wt-"));
   try {
@@ -476,9 +479,82 @@ test("worktreeStatusOf: gone, dirty, unpushed, clean", () => {
     git("remote add origin .");
     git("fetch -q origin");
     assert.deepEqual(worktreeStatusOf(dir), { state: "clean" });
+    writeFileSync(join(dir, ".agent-status.json"), '{"state":"working","detail":"x"}');
+    assert.deepEqual(worktreeStatusOf(dir), { state: "clean" }, "status file never counts as dirt");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("sessionStatusOf reads and sanitizes the session status file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inflight-ss-"));
+  try {
+    assert.equal(sessionStatusOf(dir), null);
+    writeFileSync(
+      join(dir, ".agent-status.json"),
+      '{"state":"awaiting-approval","detail":"plan ready for PY-1"}',
+    );
+    assert.deepEqual(sessionStatusOf(dir), {
+      state: "awaiting-approval",
+      detail: "plan ready for PY-1",
+    });
+    writeFileSync(join(dir, ".agent-status.json"), '{"state":"exploded","detail":"?"}');
+    assert.equal(sessionStatusOf(dir).state, "working", "unknown states fall back to working");
+    writeFileSync(join(dir, ".agent-status.json"), "not json");
+    assert.equal(sessionStatusOf(dir), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("parseDiagnosis accepts only the contract line, from the end of output", () => {
+  assert.deepEqual(parseDiagnosis("thinking...\nFLAKE: timezone shards near UTC boundary"), {
+    kind: "flake",
+    detail: "timezone shards near UTC boundary",
+  });
+  assert.deepEqual(parseDiagnosis("REAL: type error in updateSeries"), {
+    kind: "real",
+    detail: "type error in updateSeries",
+  });
+  assert.deepEqual(parseDiagnosis("WANTS: rename the flag and add a test"), {
+    kind: "digest",
+    detail: "rename the flag and add a test",
+  });
+  assert.equal(parseDiagnosis("I could not determine the cause."), null);
+  assert.equal(parseDiagnosis(""), null);
+});
+
+test("diagnosisKeyFor keys on commit for CI, review timestamp for feedback, else null", () => {
+  const pr = {
+    repo: "PerformYard/PerformYard",
+    number: 7372,
+    ci: "failure",
+    lastCommitAt: "2026-08-20T10:00:00Z",
+    reviewDecision: "REVIEW_REQUIRED",
+    changesRequestedAt: null,
+  };
+  assert.equal(diagnosisKeyFor(pr), "ci:PerformYard/PerformYard#7372:2026-08-20T10:00:00Z");
+  assert.equal(
+    diagnosisKeyFor({
+      ...pr,
+      ci: "success",
+      reviewDecision: "CHANGES_REQUESTED",
+      changesRequestedAt: "2026-08-21T10:00:00Z",
+    }),
+    "review:PerformYard/PerformYard#7372:2026-08-21T10:00:00Z",
+  );
+  assert.equal(
+    diagnosisKeyFor({
+      ...pr,
+      ci: "success",
+      reviewDecision: "CHANGES_REQUESTED",
+      changesRequestedAt: "2026-08-21T10:00:00Z",
+      lastCommitAt: "2026-08-22T10:00:00Z",
+    }),
+    null,
+    "addressed feedback needs no digest",
+  );
+  assert.equal(diagnosisKeyFor({ ...pr, ci: "success" }), null);
 });
 
 test("mapReviewPr builds a review item with id, author, ci, and age", () => {

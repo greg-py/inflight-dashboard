@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync, statSync, existsSync, rmSync } from "node:fs";
 import { execFile, execSync } from "node:child_process";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -88,6 +88,33 @@ export const CONFIG = {
   // Clean worktrees older than this are removed on the next launch. Dirty
   // ones are never removed (git worktree remove refuses without --force).
   worktreeMaxAgeMs: 72 * 60 * 60 * 1000,
+  // Sessions launched from the dashboard report progress by writing this file
+  // at their worktree root (see the skills' "Session status file" section).
+  // It's ignored when judging worktree cleanliness and removed before cleanup.
+  statusFileName: ".agent-status.json",
+  // Auto-diagnosis of red signals via one-shot headless claude runs. Read-only:
+  // the allowed tools are gh inspection commands. Disable with DIAGNOSE=off.
+  diagnosis: {
+    enabled: process.env.DIAGNOSE !== "off",
+    model: "sonnet",
+    maxTurns: 15,
+    timeoutMs: 240_000,
+    maxConcurrent: 1,
+    allowedTools: [
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh api:*)",
+    ],
+    // Failure patterns known to be rerun-safe flakes, given to the classifier.
+    knownFlakes: [
+      "React Timezone Tests failing near a UTC hour boundary",
+      "cohortQuery integration tests (clock skew or hook timeout)",
+      "meeting form 15-minute clock flake across unit shards",
+      "post-teardown window-undefined cancellations (red with 0 failures)",
+    ],
+  },
 };
 
 export const SECTIONS = ["needs_you", "waiting", "no_pr"];
@@ -239,6 +266,7 @@ export const sectionFor = (item) => {
 // persisted to a local gitignored file so a server restart doesn't wipe them.
 export const hiddenIds = new Set();
 export const launches = new Map();
+export const diagnoses = new Map();
 const STATE_PATH = join(__dirname, ".state.json");
 
 const loadState = () => {
@@ -246,6 +274,9 @@ const loadState = () => {
     const state = JSON.parse(readFileSync(STATE_PATH, "utf8"));
     for (const id of state.hidden ?? []) hiddenIds.add(id);
     for (const [id, launch] of Object.entries(state.launches ?? {})) launches.set(id, launch);
+    for (const [key, diagnosis] of Object.entries(state.diagnoses ?? {})) {
+      diagnoses.set(key, diagnosis);
+    }
   } catch {}
 };
 loadState();
@@ -254,9 +285,45 @@ const saveState = () => {
   try {
     writeFileSync(
       STATE_PATH,
-      JSON.stringify({ hidden: [...hiddenIds], launches: Object.fromEntries(launches) }),
+      JSON.stringify({
+        hidden: [...hiddenIds],
+        launches: Object.fromEntries(launches),
+        diagnoses: Object.fromEntries(diagnoses),
+      }),
     );
   } catch {}
+};
+
+// Append-only activity journal — every agent action (yours or a supervisor's)
+// lands here so autonomy stays auditable. JSONL, gitignored.
+const JOURNAL_PATH = join(__dirname, ".journal.jsonl");
+
+export const appendJournal = (event) => {
+  const entry = {
+    at: Date.now(),
+    actor: String(event.actor ?? "you").slice(0, 24),
+    action: String(event.action ?? "").slice(0, 60),
+    id: event.id != null ? String(event.id).slice(0, 80) : null,
+    detail: String(event.detail ?? "").slice(0, 300),
+  };
+  try {
+    writeFileSync(JOURNAL_PATH, `${JSON.stringify(entry)}\n`, { flag: "a" });
+  } catch {}
+  return entry;
+};
+
+export const readJournal = (limit = 30) => {
+  try {
+    return readFileSync(JOURNAL_PATH, "utf8")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .slice(-limit)
+      .map((line) => JSON.parse(line))
+      .reverse();
+  } catch {
+    return [];
+  }
 };
 
 export const buildItems = (jiraIssues, prs, mergedPrs = []) => {
@@ -494,6 +561,98 @@ export const fetchJira = async () => {
   return issues;
 };
 
+// ---------------------------------------------------------------------------
+// Auto-diagnosis: one-shot, read-only headless claude runs that turn raw red
+// signals into causes. Results are cached per (PR, state) key so each state is
+// diagnosed exactly once; keys change when a new commit or review arrives.
+// ---------------------------------------------------------------------------
+
+export const diagnosisKeyFor = (pr) => {
+  if (pr.ci === "failure") return `ci:${pr.repo}#${pr.number}:${pr.lastCommitAt}`;
+  if (pr.reviewDecision === "CHANGES_REQUESTED" && !changesAddressed(pr)) {
+    return `review:${pr.repo}#${pr.number}:${pr.changesRequestedAt}`;
+  }
+  return null;
+};
+
+export const parseDiagnosis = (output) => {
+  const line = String(output)
+    .trim()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .at(-1);
+  const match = line?.match(/^(FLAKE|REAL|WANTS):\s*(.+)$/i);
+  if (!match) return null;
+  const kind = { flake: "flake", real: "real", wants: "digest" }[match[1].toLowerCase()];
+  return { kind, detail: match[2].slice(0, 160) };
+};
+
+const diagnosisPromptFor = (pr, key) =>
+  key.startsWith("ci:")
+    ? `PR #${pr.number} in ${pr.repo} has failing CI on its latest commit. Run gh pr checks ${pr.number} --repo ${pr.repo} to find the failing checks, then inspect their logs (gh run view --log-failed). Known rerun-safe flaky patterns in this codebase: ${CONFIG.diagnosis.knownFlakes.join("; ")}. Decide whether the failure is a known-pattern flake or a real defect. Reply with EXACTLY one final line, nothing after it: "FLAKE: <which pattern, ≤15 words>" or "REAL: <root cause, ≤15 words>".`
+    : `PR #${pr.number} in ${pr.repo} has a changes-requested review. Read the review feedback (gh pr view ${pr.number} --repo ${pr.repo} --comments, and gh api repos/${pr.repo}/pulls/${pr.number}/comments for inline threads). Summarize what the reviewer(s) actually want changed. Reply with EXACTLY one final line, nothing after it: "WANTS: <the asks, ≤25 words>".`;
+
+const diagnosing = new Set();
+
+const runDiagnosis = (pr, key) => {
+  diagnosing.add(key);
+  // The prompt must precede --allowedTools: that flag is variadic and would
+  // swallow a trailing positional argument.
+  const args = [
+    "-p",
+    diagnosisPromptFor(pr, key),
+    "--model",
+    CONFIG.diagnosis.model,
+    "--max-turns",
+    String(CONFIG.diagnosis.maxTurns),
+    ...CONFIG.diagnosis.allowedTools.flatMap((tool) => ["--allowedTools", tool]),
+  ];
+  execFile(
+    "claude",
+    args,
+    { cwd: repoPathFor(pr.repo), timeout: CONFIG.diagnosis.timeoutMs, encoding: "utf8" },
+    (err, stdout) => {
+      diagnosing.delete(key);
+      const parsed = err ? null : parseDiagnosis(stdout);
+      diagnoses.set(
+        key,
+        parsed
+          ? { ...parsed, at: Date.now() }
+          : {
+              kind: "error",
+              detail: String(err?.message ?? "unparseable output").slice(0, 120),
+              at: Date.now(),
+            },
+      );
+      saveState();
+      if (parsed) {
+        appendJournal({
+          actor: "diagnosis",
+          action: key.startsWith("ci:") ? "diagnosed CI failure" : "digested review feedback",
+          id: `${pr.repo}#${pr.number}`,
+          detail: `${parsed.kind}: ${parsed.detail}`,
+        });
+      }
+    },
+  );
+};
+
+// Fire-and-forget after each refresh: diagnose any undiagnosed red signal on
+// your own non-draft PRs, a couple at a time.
+const scheduleDiagnoses = (items) => {
+  if (!CONFIG.diagnosis.enabled) return;
+  for (const item of items) {
+    for (const pr of item.prs ?? []) {
+      if (pr.isDraft) continue;
+      const key = diagnosisKeyFor(pr);
+      if (!key || diagnoses.has(key) || diagnosing.has(key)) continue;
+      if (diagnosing.size >= CONFIG.diagnosis.maxConcurrent) return;
+      runDiagnosis(pr, key);
+    }
+  }
+};
+
 // Last payload served, so /api/launch can resolve an id back to its derived
 // prompt instead of trusting anything from the client.
 let lastPayload = null;
@@ -503,15 +662,16 @@ let lastPayload = null;
 const launchInfoFor = (id) => {
   const record = launches.get(id);
   if (!record) return null;
-  if (record.error) return { agent: record.agent, at: record.at, error: record.error };
-  if (!record.worktree) return { agent: record.agent, at: record.at };
+  const base = { agent: record.agent, at: record.at, actor: record.actor ?? "you" };
+  if (record.error) return { ...base, error: record.error };
+  if (!record.worktree) return base;
   const status = worktreeStatusOf(record.worktree);
   if (status.state === "gone") {
     launches.delete(id);
     saveState();
     return null;
   }
-  return { agent: record.agent, at: record.at, status };
+  return { ...base, status, session: sessionStatusOf(record.worktree) };
 };
 
 const getData = async () => {
@@ -522,6 +682,19 @@ const getData = async () => {
     hidden: hiddenIds.has(entry.id),
     launched: launchInfoFor(entry.id),
   });
+  const items = buildItems(
+    jira.status === "fulfilled" ? jira.value : [],
+    github.status === "fulfilled" ? github.value.mine : [],
+    github.status === "fulfilled" ? github.value.merged : [],
+  ).map(withHidden);
+  for (const item of items) {
+    for (const pr of item.prs) {
+      const key = diagnosisKeyFor(pr);
+      const diagnosis = key ? diagnoses.get(key) : null;
+      if (diagnosis && diagnosis.kind !== "error") pr.diagnosis = diagnosis;
+    }
+  }
+  scheduleDiagnoses(items);
   return (lastPayload = {
     fetchedAt: new Date().toISOString(),
     sources: {
@@ -529,14 +702,11 @@ const getData = async () => {
       github:
         github.status === "fulfilled" ? { ok: true } : { ok: false, error: github.reason.message },
     },
-    items: buildItems(
-      jira.status === "fulfilled" ? jira.value : [],
-      github.status === "fulfilled" ? github.value.mine : [],
-      github.status === "fulfilled" ? github.value.merged : [],
-    ).map(withHidden),
+    items,
     reviewRequests: (github.status === "fulfilled" ? github.value.reviewRequests : []).map(
       withHidden,
     ),
+    journal: readJournal(30),
     agentOptions: Object.fromEntries(
       Object.entries(CONFIG.agents).map(([name, agent]) => [
         name,
@@ -638,11 +808,28 @@ export const worktreeStatusOf = (worktreePath) => {
   if (!existsSync(worktreePath)) return { state: "gone" };
   try {
     const git = (args) => execSync(`git ${args}`, { cwd: worktreePath, encoding: "utf8" }).trim();
-    if (git("status --porcelain") !== "") return { state: "dirty" };
+    const dirty = git("status --porcelain")
+      .split("\n")
+      .filter((line) => line.trim() !== "" && !line.endsWith(CONFIG.statusFileName));
+    if (dirty.length > 0) return { state: "dirty" };
     const unpushed = Number(git("rev-list --count HEAD --not --remotes"));
     return unpushed > 0 ? { state: "unpushed", unpushed } : { state: "clean" };
   } catch {
     return { state: "unknown" };
+  }
+};
+
+// The session's own progress report, if it wrote one (skills maintain this at
+// the worktree root when launched from the dashboard).
+export const sessionStatusOf = (worktreePath) => {
+  try {
+    const raw = JSON.parse(readFileSync(join(worktreePath, CONFIG.statusFileName), "utf8"));
+    const state = ["working", "awaiting-approval", "blocked", "done"].includes(raw.state)
+      ? raw.state
+      : "working";
+    return { state, detail: String(raw.detail ?? "").slice(0, 200) };
+  } catch {
+    return null;
   }
 };
 
@@ -697,16 +884,26 @@ const startServer = () => {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(body);
       } else if (req.method === "POST" && req.url === "/api/launch") {
-        const { id, prNumber, agent, model, effort } = JSON.parse((await readBody(req)) || "{}");
+        const { id, prNumber, agent, model, effort, actor } = JSON.parse(
+          (await readBody(req)) || "{}",
+        );
         const agentDef = CONFIG.agents[agent];
         const launch = typeof id === "string" ? findLaunchTarget(id, prNumber) : null;
         const modelOk =
           !model || agentDef?.models.includes(model) || model === agentDefaults[agent]?.model;
         const effortOk = !effort || agentDef?.efforts.includes(effort);
         const repoPath = launch ? repoPathFor(launch.repo) : null;
+        const existing = launches.get(id);
         if (!agentDef || !launch || !modelOk || !effortOk) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "unknown item, PR, agent, model, or effort" }));
+        } else if (existing && !existing.error) {
+          res.writeHead(409, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              error: `already launched (${existing.agent}) — clear the session note to relaunch`,
+            }),
+          );
         } else if (!existsSync(repoPath)) {
           res.writeHead(400, { "Content-Type": "application/json" });
           res.end(
@@ -720,8 +917,21 @@ const startServer = () => {
             basename(repoPath),
             `${slugFor(launch.prompt)}-${Date.now().toString(36)}`,
           );
-          launches.set(id, { agent, at: Date.now(), worktree: worktreePath, repoPath });
+          const launchActor = typeof actor === "string" && actor ? actor.slice(0, 24) : "you";
+          launches.set(id, {
+            agent,
+            at: Date.now(),
+            worktree: worktreePath,
+            repoPath,
+            actor: launchActor,
+          });
           saveState();
+          appendJournal({
+            actor: launchActor,
+            action: `launch ${agent}`,
+            id,
+            detail: launch.prompt,
+          });
           pruneStaleWorktrees();
           launchTerminal(
             buildLaunchCommand({
@@ -751,6 +961,7 @@ const startServer = () => {
           let removalError = null;
           if (record.worktree && existsSync(record.worktree) && !record.error) {
             try {
+              rmSync(join(record.worktree, CONFIG.statusFileName), { force: true });
               execSync(`git worktree remove ${shellQuote(record.worktree)}`, {
                 cwd: record.repoPath ?? repoPathFor(null),
                 encoding: "utf8",
@@ -768,9 +979,24 @@ const startServer = () => {
           } else {
             launches.delete(id);
             saveState();
+            appendJournal({ actor: "you", action: "clear launch", id });
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ ok: true }));
           }
+        }
+      } else if (req.method === "GET" && req.url.startsWith("/api/journal")) {
+        const limit = Number(new URL(req.url, "http://x").searchParams.get("limit")) || 30;
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ events: readJournal(Math.min(limit, 200)) }));
+      } else if (req.method === "POST" && req.url === "/api/journal") {
+        const body = JSON.parse((await readBody(req)) || "{}");
+        if (typeof body.action !== "string" || !body.action) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "action is required" }));
+        } else {
+          const entry = appendJournal(body);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, entry }));
         }
       } else if (req.method === "POST" && (req.url === "/api/hide" || req.url === "/api/restore")) {
         const { id } = JSON.parse((await readBody(req)) || "{}");
