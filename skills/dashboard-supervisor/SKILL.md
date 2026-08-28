@@ -38,7 +38,7 @@ Mechanics: pass `model`/`effort` in the `POST /api/launch` body. For **codex, ne
 3. **Build the decision table** from non-hidden `items` (skip every review-request row except policy #5), with two ownership rules:
 
 - **Drafts:** skip `isDraft: true` PRs only on rows with **no ticket key** (parked prototypes). A draft attached to an assigned ticket is normal output of the autonomous pipeline — treat its signals (CI, conflicts, feedback) like any other PR's.
-- **Launched records:** an item with a `launched` record is owned — and therefore skipped (beyond policies #6–8) — only while its session is plausibly active: `session.state` is `working`/`awaiting-approval`/`blocked`, **or** there is no session status and the launch is **less than 2 hours old**. A `done` session, or a statusless launch older than 2 hours, no longer owns the item: act on its signals, but `POST /api/clear-launch {id}` first (the launch endpoint 409s while a record exists), journaling the takeover.
+- **Launched records:** an item with a `launched` record is owned — and therefore skipped (beyond policies #6–8) — only while its session is plausibly active: `session.state` is `working` (without `stale: true` — a stale working session crashed or wandered off and does not own the item), `awaiting-approval`, or `blocked`, **or** there is no session status and the launch is **less than 2 hours old**. A `done` session, or a statusless launch older than 2 hours, no longer owns the item: act on its signals, but `POST /api/clear-launch {id}` first (the launch endpoint 409s while a record exists), journaling the takeover.
 
 | # | Signal (from the payload) | Action | Action key |
 |---|---|---|---|

@@ -24,7 +24,7 @@ import {
   diagnosisKeyFor,
 } from "./server.js";
 import { execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -540,6 +540,12 @@ test("sessionStatusOf reads and sanitizes the session status file", () => {
     });
     writeFileSync(join(dir, ".agent-status.json"), '{"state":"exploded","detail":"?"}');
     assert.equal(sessionStatusOf(dir).state, "working", "unknown states fall back to working");
+    writeFileSync(join(dir, ".agent-status.json"), '{"state":"complete","detail":"pushed"}');
+    assert.equal(sessionStatusOf(dir).state, "done", "complete aliases to done");
+    writeFileSync(join(dir, ".agent-status.json"), '{"state":"working","detail":"x"}');
+    const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    utimesSync(join(dir, ".agent-status.json"), old, old);
+    assert.equal(sessionStatusOf(dir).stale, true, "old working sessions read stale");
     writeFileSync(join(dir, ".agent-status.json"), "not json");
     assert.equal(sessionStatusOf(dir), null);
   } finally {

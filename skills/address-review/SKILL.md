@@ -192,7 +192,7 @@ If your initial working directory is under `~/.cache/inflight-worktrees/`, this 
 { "state": "working", "detail": "<one short line: current phase, or what you're waiting for>" }
 ```
 
-States: `working` (default), `awaiting-approval` (stopped at an approval gate waiting for the user), `blocked` (waiting on an answer to a question), `done` (final report delivered; work pushed or complete). Update `detail` on every transition. Never commit this file — the dashboard reads it and cleans it up.
+States: `working` (default), `awaiting-approval` (stopped at an approval gate waiting for the user), `blocked` (waiting on an answer to a question), `done` (final report delivered; work pushed or complete). Update `detail` on every transition, and use these EXACT state strings — anything else is coerced to `working`, which makes the dashboard think the session never finished. Never commit this file — the dashboard reads it and cleans it up.
 
 ### Staging approvals in autonomous mode
 

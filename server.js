@@ -106,6 +106,9 @@ export const CONFIG = {
   // Approve button runs it there.
   approvalScriptName: ".approval.sh",
   approvalTimeoutMs: 180_000,
+  // A "working" session whose status file hasn't been touched in this long is
+  // reported stale — it no longer owns its item (crashed or wandered off).
+  sessionStaleMs: 2 * 60 * 60 * 1000,
   // Auto-diagnosis of red signals via one-shot headless claude runs. Read-only:
   // the allowed tools are gh inspection commands. Disable with DIAGNOSE=off.
   diagnosis: {
@@ -899,12 +902,17 @@ export const worktreeStatusOf = (worktreePath) => {
 
 // The session's own progress report, if it wrote one (skills maintain this at
 // the worktree root when launched from the dashboard).
+const SESSION_STATE_ALIASES = { complete: "done", completed: "done", finished: "done" };
+
 export const sessionStatusOf = (worktreePath) => {
   try {
-    const raw = JSON.parse(readFileSync(join(worktreePath, CONFIG.statusFileName), "utf8"));
-    const state = ["working", "awaiting-approval", "blocked", "done"].includes(raw.state)
-      ? raw.state
-      : "working";
+    const statusPath = join(worktreePath, CONFIG.statusFileName);
+    const raw = JSON.parse(readFileSync(statusPath, "utf8"));
+    let state = String(raw.state ?? "working").toLowerCase();
+    state = SESSION_STATE_ALIASES[state] ?? state;
+    if (!["working", "awaiting-approval", "blocked", "done"].includes(state)) state = "working";
+    const stale =
+      state === "working" && Date.now() - statSync(statusPath).mtimeMs > CONFIG.sessionStaleMs;
     const approval =
       raw.approval && typeof raw.approval === "object"
         ? {
@@ -912,7 +920,12 @@ export const sessionStatusOf = (worktreePath) => {
             detail: String(raw.approval.detail ?? "").slice(0, 200),
           }
         : null;
-    return { state, detail: String(raw.detail ?? "").slice(0, 200), ...(approval && { approval }) };
+    return {
+      state,
+      detail: String(raw.detail ?? "").slice(0, 200),
+      ...(approval && { approval }),
+      ...(stale && { stale: true }),
+    };
   } catch {
     return null;
   }
