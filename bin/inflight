@@ -41,6 +41,13 @@ supervisor_window_alive() {
 }
 
 cmd_up() {
+  local no_supervisor=0 new_supervisor=0
+  for arg in "$@"; do
+    case "$arg" in
+      --no-supervisor) no_supervisor=1 ;;
+      --new-supervisor) new_supervisor=1 ;;
+    esac
+  done
   mkdir -p "$RUN_DIR"
 
   if server_up; then
@@ -55,14 +62,20 @@ cmd_up() {
     fi
   fi
 
-  if [ "${1:-}" = "--no-supervisor" ]; then
+  if [ "$no_supervisor" = 1 ]; then
     echo "supervisor: skipped (--no-supervisor)"
   else
     age="$(heartbeat_age_secs)"
-    if supervisor_window_alive; then
+    if [ "$new_supervisor" = 1 ] && supervisor_window_alive; then
+      osascript -e "tell application \"Terminal\" to close window id $(cat "$WIN_FILE")" 2>/dev/null || true
+      rm -f "$WIN_FILE"
+      echo "supervisor: closed the tracked window (--new-supervisor)"
+    fi
+    if [ "$new_supervisor" = 0 ] && supervisor_window_alive; then
       echo "supervisor: window already open"
-    elif [ "$age" -ge 0 ] && [ "$age" -lt "$HEARTBEAT_FRESH_SECS" ]; then
+    elif [ "$new_supervisor" = 0 ] && [ "$age" -ge 0 ] && [ "$age" -lt "$HEARTBEAT_FRESH_SECS" ]; then
       echo "supervisor: a loop is already alive (last pass $((age / 60))m ago) — not spawning another"
+      echo "            (an untracked loop? close its Terminal window, then rerun with --new-supervisor)"
     else
       echo "supervisor: opening Terminal with the loop"
       win="$(osascript \
@@ -126,9 +139,9 @@ cmd_status() {
 cmd_logs() { tail -n 100 -f "$LOG_FILE"; }
 
 case "${1:-}" in
-  up) cmd_up "${2:-}" ;;
+  up) shift; cmd_up "$@" ;;
   down) cmd_down ;;
   status) cmd_status ;;
   logs) cmd_logs ;;
-  *) echo "usage: inflight up [--no-supervisor] | down | status | logs"; exit 1 ;;
+  *) echo "usage: inflight up [--no-supervisor|--new-supervisor] | down | status | logs"; exit 1 ;;
 esac
