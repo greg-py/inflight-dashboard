@@ -667,7 +667,9 @@ const scheduleDiagnoses = (items) => {
   if (!CONFIG.diagnosis.enabled) return;
   for (const item of items) {
     for (const pr of item.prs ?? []) {
-      if (pr.isDraft) continue;
+      // Ticket-less drafts are parked prototypes; ticket-attached drafts are
+      // the autonomous pipeline's own output and deserve diagnosis.
+      if (pr.isDraft && !item.key) continue;
       const key = diagnosisKeyFor(pr);
       if (!key || diagnoses.has(key) || diagnosing.has(key)) continue;
       if (diagnosing.size >= CONFIG.diagnosis.maxConcurrent) return;

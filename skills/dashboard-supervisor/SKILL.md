@@ -35,7 +35,10 @@ Mechanics: pass `model`/`effort` in the `POST /api/launch` body. For **codex, ne
 
 1. **Fetch** `curl -s http://localhost:4477/api/data`. If the dashboard isn't running, say so and stop — do not start it yourself.
 2. **Load state** from `~/.cache/inflight-supervisor/state.json`: `{ actedOn: {"<action-key>": epochMs}, lastAwaiting: ["<id>"], launchLog: [{"provider": "claude"|"codex", "at": epochMs}], escalated: {"<item id>": epochMs}, knownItems: ["<id>"] }` (create on first run; prune `actedOn` entries and `launchLog` rows older than 14 days / 5 hours respectively). `knownItems` is every item id seen on previous passes — it's what makes policy #9 fire only for **newly appearing** work. If state has no `knownItems` yet, seed it from the current board and take no #9 actions this pass: the pre-existing backlog is the user's to launch manually.
-3. **Build the decision table** from non-hidden `items` (skip every review-request row except policy #5, skip any PR with `isDraft: true`, skip any item whose `launched` record is present unless policies #7–8 apply):
+3. **Build the decision table** from non-hidden `items` (skip every review-request row except policy #5), with two ownership rules:
+
+- **Drafts:** skip `isDraft: true` PRs only on rows with **no ticket key** (parked prototypes). A draft attached to an assigned ticket is normal output of the autonomous pipeline — treat its signals (CI, conflicts, feedback) like any other PR's.
+- **Launched records:** an item with a `launched` record is owned — and therefore skipped (beyond policies #6–8) — only while its session is plausibly active: `session.state` is `working`/`awaiting-approval`/`blocked`, **or** there is no session status and the launch is **less than 2 hours old**. A `done` session, or a statusless launch older than 2 hours, no longer owns the item: act on its signals, but `POST /api/clear-launch {id}` first (the launch endpoint 409s while a record exists), journaling the takeover.
 
 | # | Signal (from the payload) | Action | Action key |
 |---|---|---|---|
