@@ -920,6 +920,8 @@ const startServer = () => {
           const launchActor = typeof actor === "string" && actor ? actor.slice(0, 24) : "you";
           launches.set(id, {
             agent,
+            model: model ?? null,
+            effort: effort ?? null,
             at: Date.now(),
             worktree: worktreePath,
             repoPath,
@@ -930,7 +932,7 @@ const startServer = () => {
             actor: launchActor,
             action: `launch ${agent}`,
             id,
-            detail: launch.prompt,
+            detail: `${launch.prompt} · ${model ?? "default model"} · ${effort ?? "default effort"}`,
           });
           pruneStaleWorktrees();
           launchTerminal(
