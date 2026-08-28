@@ -357,6 +357,7 @@ const GITHUB_QUERY = `query($mine: String!, $reviews: String!, $merged: String!)
 }
 fragment PrFields on PullRequest {
   number title url isDraft headRefName mergeable reviewDecision createdAt updatedAt
+  additions deletions
   author { login }
   repository { nameWithOwner }
   viewerLatestReview { state }
@@ -401,6 +402,8 @@ const basePrOf = (node, now) => {
     changesRequestedAt: changesRequestedTimes.at(-1) ?? null,
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
+    additions: node.additions ?? 0,
+    deletions: node.deletions ?? 0,
     ci: effectiveCi(lastCommit?.statusCheckRollup?.contexts?.nodes),
     ageDays: Math.max(0, Math.floor((now - Date.parse(node.createdAt)) / 86_400_000)),
   };
@@ -408,7 +411,13 @@ const basePrOf = (node, now) => {
 
 export const mapReviewPr = (node, now) => {
   const pr = basePrOf(node, now);
-  return { ...pr, id: `${pr.repo}#${pr.number}` };
+  const ticketKey = extractTicketKeys(pr)[0] ?? null;
+  return {
+    ...pr,
+    id: `${pr.repo}#${pr.number}`,
+    ticketKey,
+    ticketUrl: ticketKey ? `${CONFIG.jiraBaseUrl}/browse/${ticketKey}` : null,
+  };
 };
 
 export const fetchGithub = async () => {
@@ -489,12 +498,29 @@ export const fetchJira = async () => {
 // prompt instead of trusting anything from the client.
 let lastPayload = null;
 
+// Resolves a launch record into what the UI shows. Inspects the worktree live;
+// a vanished worktree means the session is over, so the note self-clears.
+const launchInfoFor = (id) => {
+  const record = launches.get(id);
+  if (!record) return null;
+  if (record.error) return { agent: record.agent, at: record.at, error: record.error };
+  if (!record.worktree) return { agent: record.agent, at: record.at };
+  const status = worktreeStatusOf(record.worktree);
+  if (status.state === "gone") {
+    launches.delete(id);
+    saveState();
+    return null;
+  }
+  return { agent: record.agent, at: record.at, status };
+};
+
 const getData = async () => {
+  agentDefaults = readAgentDefaults();
   const [jira, github] = await Promise.allSettled([fetchJira(), fetchGithub()]);
   const withHidden = (entry) => ({
     ...entry,
     hidden: hiddenIds.has(entry.id),
-    launched: launches.get(entry.id) ?? null,
+    launched: launchInfoFor(entry.id),
   });
   return (lastPayload = {
     fetchedAt: new Date().toISOString(),
@@ -552,7 +578,8 @@ const readAgentDefaults = () => {
   } catch {}
   return defaults;
 };
-export const agentDefaults = readAgentDefaults();
+// Re-read on every data refresh so a changed CLI default shows without restart.
+export let agentDefaults = readAgentDefaults();
 
 export const buildAgentInvocation = (agentKey, { model, effort } = {}, prompt) => {
   const agent = CONFIG.agents[agentKey];
@@ -605,6 +632,20 @@ export const buildLaunchCommand = ({ repoPath, worktreePath, branch, invocation 
     invocation,
   ].join(" && ");
 
+// What became of a launched session's worktree: gone (cleaned up), dirty
+// (uncommitted changes), unpushed (committed work not on any remote), or clean.
+export const worktreeStatusOf = (worktreePath) => {
+  if (!existsSync(worktreePath)) return { state: "gone" };
+  try {
+    const git = (args) => execSync(`git ${args}`, { cwd: worktreePath, encoding: "utf8" }).trim();
+    if (git("status --porcelain") !== "") return { state: "dirty" };
+    const unpushed = Number(git("rev-list --count HEAD --not --remotes"));
+    return unpushed > 0 ? { state: "unpushed", unpushed } : { state: "clean" };
+  } catch {
+    return { state: "unknown" };
+  }
+};
+
 export const repoPathFor = (repo) => {
   const known = CONFIG.knownRepos.includes(repo) ? repo : CONFIG.defaultRepo;
   return join(CONFIG.reposDir, known.split("/")[1]);
@@ -625,14 +666,20 @@ const pruneStaleWorktrees = () => {
   }
 };
 
-const launchTerminal = (command) => {
+const launchTerminal = (command, onError) => {
   const appleScriptSafe = command.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  execFile("osascript", [
-    "-e",
-    `tell application "Terminal" to do script "${appleScriptSafe}"`,
-    "-e",
-    'tell application "Terminal" to activate',
-  ]);
+  execFile(
+    "osascript",
+    [
+      "-e",
+      `tell application "Terminal" to do script "${appleScriptSafe}"`,
+      "-e",
+      'tell application "Terminal" to activate',
+    ],
+    (err) => {
+      if (err && onError) onError(err);
+    },
+  );
 };
 
 const readBody = (req) =>
@@ -673,7 +720,7 @@ const startServer = () => {
             basename(repoPath),
             `${slugFor(launch.prompt)}-${Date.now().toString(36)}`,
           );
-          launches.set(id, { agent, at: Date.now() });
+          launches.set(id, { agent, at: Date.now(), worktree: worktreePath, repoPath });
           saveState();
           pruneStaleWorktrees();
           launchTerminal(
@@ -683,9 +730,47 @@ const startServer = () => {
               branch: defaultBranchOf(repoPath),
               invocation: buildAgentInvocation(agent, { model, effort }, launch.prompt),
             }),
+            (err) => {
+              const record = launches.get(id);
+              if (record) {
+                record.error = String(err.message ?? err).split("\n")[0].slice(0, 160);
+                saveState();
+              }
+            },
           );
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true }));
+        }
+      } else if (req.method === "POST" && req.url === "/api/clear-launch") {
+        const { id } = JSON.parse((await readBody(req)) || "{}");
+        const record = typeof id === "string" ? launches.get(id) : null;
+        if (!record) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "no launch recorded for that item" }));
+        } else {
+          let removalError = null;
+          if (record.worktree && existsSync(record.worktree) && !record.error) {
+            try {
+              execSync(`git worktree remove ${shellQuote(record.worktree)}`, {
+                cwd: record.repoPath ?? repoPathFor(null),
+                encoding: "utf8",
+                stdio: "pipe",
+              });
+            } catch (err) {
+              removalError = String(err.stderr ?? err.message).split("\n")[0].slice(0, 160);
+            }
+          }
+          if (removalError) {
+            res.writeHead(409, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({ error: `worktree not removed (uncommitted work?): ${removalError}` }),
+            );
+          } else {
+            launches.delete(id);
+            saveState();
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ ok: true }));
+          }
         }
       } else if (req.method === "POST" && (req.url === "/api/hide" || req.url === "/api/restore")) {
         const { id } = JSON.parse((await readBody(req)) || "{}");

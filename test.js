@@ -17,7 +17,12 @@ import {
   changesAddressed,
   repoPathFor,
   qaGateState,
+  worktreeStatusOf,
 } from "./server.js";
+import { execSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
   assert.deepEqual(
@@ -457,6 +462,25 @@ test("slugFor sanitizes prompts to shell-safe worktree names", () => {
   assert.equal(slugFor("Investigate and fix the failing CI checks on PR #7411."), "investigate-and-fix-the-failing-ci-checks-on-pr-7411");
 });
 
+test("worktreeStatusOf: gone, dirty, unpushed, clean", () => {
+  assert.deepEqual(worktreeStatusOf("/nonexistent/inflight-test-path"), { state: "gone" });
+  const dir = mkdtempSync(join(tmpdir(), "inflight-wt-"));
+  try {
+    const git = (args) => execSync(`git ${args}`, { cwd: dir, encoding: "utf8" });
+    git("init -q");
+    git('-c user.email=t@t -c user.name=t commit --allow-empty -m init -q');
+    assert.deepEqual(worktreeStatusOf(dir), { state: "unpushed", unpushed: 1 });
+    writeFileSync(join(dir, "scratch.txt"), "x");
+    assert.deepEqual(worktreeStatusOf(dir), { state: "dirty" });
+    rmSync(join(dir, "scratch.txt"));
+    git("remote add origin .");
+    git("fetch -q origin");
+    assert.deepEqual(worktreeStatusOf(dir), { state: "clean" });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("mapReviewPr builds a review item with id, author, ci, and age", () => {
   const node = {
     number: 7400,
@@ -497,6 +521,8 @@ test("mapReviewPr builds a review item with id, author, ci, and age", () => {
   assert.equal(pr.ci, "success");
   assert.equal(pr.qaGate, "blocked");
   assert.equal(pr.ageDays, 6);
+  assert.equal(pr.ticketKey, "PY-14000");
+  assert.equal(pr.ticketUrl, "https://performyard.atlassian.net/browse/PY-14000");
   assert.equal(pr.openThreads, 1, "counts only unresolved threads where the author isn't last");
   assert.equal(
     mapReviewPr({ ...node, reviewDecision: "APPROVED" }, Date.parse("2026-08-26T00:00:00Z"))

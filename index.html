@@ -100,6 +100,7 @@
   .pr-line a:hover { text-decoration: underline; }
   .r-bad { color: var(--red); }
   .r-good { color: var(--green); }
+  .r-warn { color: var(--amber); }
   .chip {
     font-size: 11px; padding: 2px 9px; border-radius: 10px; white-space: nowrap; margin-top: 1px;
     background: var(--gray-chip-bg); color: var(--gray-chip);
@@ -180,13 +181,18 @@
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
     );
 
+  const STALE_REVIEW_DAYS = 3;
+
   const reasonSpan = (reason) => {
+    const age = reason.match(/^awaiting review · (\d+)d$/);
     const cls =
       BAD_REASONS.includes(reason) || /open thread/.test(reason)
         ? "r-bad"
-        : GOOD_REASONS.includes(reason)
-          ? "r-good"
-          : "";
+        : age && Number(age[1]) >= STALE_REVIEW_DAYS
+          ? "r-warn"
+          : GOOD_REASONS.includes(reason)
+            ? "r-good"
+            : "";
     return `<span class="${cls}">${esc(reason)}</span>`;
   };
 
@@ -195,10 +201,19 @@
     return mins < 60 ? `${mins}m ago` : `${Math.round(mins / 60)}h ago`;
   };
 
-  const launchedNote = (entry) =>
-    entry.launched
-      ? ` <span class="subtask-of">· ${esc(entry.launched.agent)} launched ${agoText(entry.launched.at)}</span>`
-      : "";
+  const launchedNote = (entry) => {
+    const launched = entry.launched;
+    if (!launched) return "";
+    const bits = [`${esc(launched.agent)} launched ${agoText(launched.at)}`];
+    if (launched.error) bits.push(`<span class="r-bad" title="${esc(launched.error)}">launch failed</span>`);
+    else if (launched.status?.state === "dirty") bits.push(`<span class="r-warn">uncommitted changes</span>`);
+    else if (launched.status?.state === "unpushed")
+      bits.push(
+        `<span class="r-warn">${launched.status.unpushed} unpushed commit${launched.status.unpushed === 1 ? "" : "s"}</span>`,
+      );
+    else if (launched.status?.state === "clean") bits.push("worktree clean");
+    return ` <span class="subtask-of">· ${bits.join(" · ")} <button class="act" data-action="clear-launch" data-id="${esc(entry.id)}">clear</button></span>`;
+  };
 
   const actButton = (action, id) =>
     `<button class="act" data-action="${action}" data-id="${esc(id)}">${action}</button>`;
@@ -262,8 +277,14 @@
     const ciSpan =
       pr.ci === "failure" ? reasonSpan("CI failing") : pr.ci === "success" ? reasonSpan("CI green") : "";
     const details = [
+      pr.ticketKey
+        ? `<a href="${esc(pr.ticketUrl)}" target="_blank" rel="noopener">${esc(pr.ticketKey)}</a>`
+        : "",
       `<a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.repo)}#${pr.number}</a>`,
-      `open ${pr.ageDays}d`,
+      `+${pr.additions}/−${pr.deletions}`,
+      pr.ageDays >= STALE_REVIEW_DAYS
+        ? `<span class="r-warn">open ${pr.ageDays}d</span>`
+        : `open ${pr.ageDays}d`,
       pr.viewerReviewState ? "re-requested" : "",
       pr.isDraft ? "draft" : "",
       ciSpan,
@@ -430,10 +451,15 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? `HTTP ${res.status}`);
+      }
       if (lastData) {
         for (const entry of [...lastData.items, ...lastData.reviewRequests]) {
-          if (entry.id === id) entry.hidden = action === "hide";
+          if (entry.id !== id) continue;
+          if (action === "clear-launch") entry.launched = null;
+          else entry.hidden = action === "hide";
         }
         render(lastData);
       }

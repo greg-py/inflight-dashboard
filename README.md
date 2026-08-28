@@ -71,9 +71,15 @@ merge" and needs you even if the Jira status hasn't caught up.
 Other signals: actionable review threads on your PRs ("N open threads" — unresolved,
 last comment not yours, never counted on approved PRs) pull the item into Needs you with
 an address-review launch; a PR-less ticket whose PR merged in the last 14 days shows
-"PR #N merged"; rows you launched an agent on show "claude launched 20m ago"; and the tab
-title shows the Needs-you count, e.g. "(3) In-flight". Hides and launch memory persist in
-a local gitignored `.state.json`.
+"PR #N merged"; and the tab title shows the Needs-you count, e.g. "(3) In-flight". Hides
+and launch memory persist in a local gitignored `.state.json`.
+
+Rows you launched an agent on track the session's worktree live: "claude launched 20m ago
+· 3 unpushed commits" (or "uncommitted changes", "worktree clean", or a red "launch
+failed" if the Terminal never opened). The note self-clears when the worktree is gone; a
+hover "clear" removes the note and deletes the worktree when it's clean — never when it
+holds work. Review-request rows show the linked ticket, diff size (+A/−D), and an amber
+age once a review has waited 3+ days.
 
 ## Setup
 
