@@ -220,3 +220,17 @@ If your initial working directory is under `~/.cache/inflight-worktrees/`, this 
 ```
 
 States: `working` (default), `awaiting-approval` (stopped at an approval gate waiting for the user), `blocked` (waiting on an answer to a question), `done` (final report delivered; work pushed or complete). Update `detail` on every transition. Never commit this file — the dashboard reads it and cleans it up.
+
+### Staging approvals in autonomous mode
+
+When `--autonomous` is active and you reach a gate whose action is **outward-facing** (submitting a review, posting reply comments — anything that lands in a colleague's notifications), stage it instead of stopping in the terminal: write an executable `.approval.sh` at the worktree root containing exactly the staged command(s) — nothing else, no side quests — and set the status file to:
+
+```json
+{ "state": "awaiting-approval", "detail": "<what's staged>", "approval": { "label": "<verb phrase, e.g. submit review>", "detail": "<one line of what it will do>" } }
+```
+
+The dashboard renders an Approve button that runs `.approval.sh` in this worktree (and a Dismiss button that declines it). Keep any long content the script posts in files in the worktree (e.g. `review-body.md`) referenced with `--body-file`.
+
+## Autonomous Mode (`--autonomous`)
+
+With `--autonomous`, produce the complete verified review with no interactive stops, then **stage the submission instead of posting it**: write the review body and inline comments to files in the worktree, create `.approval.sh` containing exactly the command(s) that post the review, and set status `awaiting-approval` with `approval: { label: "submit review (<verdict>)", detail: "<N findings, one-line verdict>" }` per the staging section above. Posting a review to a colleague's PR always remains behind that one click — `--autonomous` never submits it directly.

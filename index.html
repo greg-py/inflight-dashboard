@@ -83,6 +83,16 @@
   .section-head.waiting { color: var(--amber); }
   .section-head.no_pr { color: var(--text-3); }
   .section-head.reviews { color: var(--purple); }
+  .section-head.approvals { color: var(--amber); }
+  #approvals-card[hidden] { display: none; }
+  .approve-btns { display: flex; gap: 6px; margin-top: 2px; }
+  .approve-btns button {
+    font-size: 11.5px; padding: 3px 12px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  .approve-btns button.primary { background: var(--amber-bg); color: var(--amber); border-color: transparent; }
+  .approve-btns button:hover { filter: brightness(1.08); }
+  .approve-btns button:disabled { opacity: 0.5; cursor: default; }
   .row {
     display: flex; align-items: flex-start; gap: 10px;
     padding: 9px 18px; border-top: 1px solid var(--border);
@@ -158,6 +168,10 @@
       <div class="card" id="section-no_pr"></div>
     </div>
     <div class="col">
+      <div class="card" id="approvals-card" hidden>
+        <div class="section-head approvals" id="approvals-head">Needs approval</div>
+        <div id="approvals-list"></div>
+      </div>
       <div class="card" id="section-reviews"></div>
       <div class="card" id="journal-card" hidden>
         <details id="journal-details">
@@ -408,11 +422,41 @@
       reviews.map((pr) => reviewRowHtml(pr, "hide")),
     );
 
-    const awaiting = [...data.items, ...data.reviewRequests].filter(
+    const awaitingEntries = [...data.items, ...data.reviewRequests].filter(
       (entry) =>
         !entry.hidden &&
         ["awaiting-approval", "blocked"].includes(entry.launched?.session?.state),
-    ).length;
+    );
+    const awaiting = awaitingEntries.length;
+
+    const approvalRows = awaitingEntries.filter(
+      (entry) => entry.launched.session.state === "awaiting-approval",
+    );
+    document.getElementById("approvals-card").hidden = approvalRows.length === 0;
+    document.getElementById("approvals-head").textContent = `Needs approval · ${approvalRows.length}`;
+    document.getElementById("approvals-list").innerHTML = approvalRows
+      .map((entry) => {
+        const approval = entry.launched.session.approval;
+        const name = entry.key ?? entry.id;
+        const link = entry.url ?? entry.prs?.[0]?.url ?? null;
+        const title = `<span class="key">${
+          link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(name)}</a>` : esc(name)
+        }</span>`;
+        const buttons = approval
+          ? `<div class="approve-btns">
+              <button class="ab primary" data-action="approve" data-id="${esc(entry.id)}">approve: ${esc(approval.label)}</button>
+              <button class="ab" data-action="dismiss" data-id="${esc(entry.id)}">dismiss</button>
+            </div>`
+          : `<div class="pr-line">at an interactive gate — see its Terminal window</div>`;
+        return `<div class="row">${title}
+          <div class="body"><div class="summary" title="${esc(entry.summary ?? entry.title ?? "")}">${esc(
+            entry.summary ?? entry.title ?? "",
+          )}</div>
+          <div class="pr-line">${esc(approval?.detail || entry.launched.session.detail || "")}</div>
+          ${buttons}</div>
+        </div>`;
+      })
+      .join("");
     const chip = document.getElementById("awaiting-chip");
     chip.hidden = awaiting === 0;
     chip.textContent = `${awaiting} session${awaiting === 1 ? "" : "s"} await${awaiting === 1 ? "s" : ""} you`;
@@ -488,6 +532,39 @@
   };
 
   document.querySelector("main").addEventListener("click", async (event) => {
+    const approvalButton = event.target.closest("button.ab");
+    if (approvalButton) {
+      const { action, id } = approvalButton.dataset;
+      approvalButton.disabled = true;
+      approvalButton.textContent = action === "approve" ? "running…" : "dismissing…";
+      try {
+        const res = await fetch(`/api/${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+        if (lastData) {
+          for (const entry of [...lastData.items, ...lastData.reviewRequests]) {
+            if (entry.id === id && entry.launched?.session) {
+              entry.launched.session = {
+                state: "done",
+                detail: action === "approve" ? "approved" : "dismissed",
+              };
+            }
+          }
+          render(lastData);
+        }
+      } catch (err) {
+        approvalButton.disabled = false;
+        approvalButton.textContent = action;
+        const errorEl = document.getElementById("error");
+        errorEl.textContent = `${action} failed: ${err.message}`;
+        errorEl.hidden = false;
+      }
+      return;
+    }
     const launchButton = event.target.closest("button.lb");
     if (launchButton) {
       const { agent, id, pr, copy } = launchButton.dataset;

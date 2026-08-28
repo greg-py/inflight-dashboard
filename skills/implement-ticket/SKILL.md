@@ -217,3 +217,22 @@ If your initial working directory is under `~/.cache/inflight-worktrees/`, this 
 ```
 
 States: `working` (default), `awaiting-approval` (stopped at an approval gate waiting for the user), `blocked` (waiting on an answer to a question), `done` (final report delivered; work pushed or complete). Update `detail` on every transition. Never commit this file — the dashboard reads it and cleans it up.
+
+### Staging approvals in autonomous mode
+
+When `--autonomous` is active and you reach a gate whose action is **outward-facing** (submitting a review, posting reply comments — anything that lands in a colleague's notifications), stage it instead of stopping in the terminal: write an executable `.approval.sh` at the worktree root containing exactly the staged command(s) — nothing else, no side quests — and set the status file to:
+
+```json
+{ "state": "awaiting-approval", "detail": "<what's staged>", "approval": { "label": "<verb phrase, e.g. submit review>", "detail": "<one line of what it will do>" } }
+```
+
+The dashboard renders an Approve button that runs `.approval.sh` in this worktree (and a Dismiss button that declines it). Keep any long content the script posts in files in the worktree (e.g. `review-body.md`) referenced with `--body-file`.
+
+## Autonomous Mode (`--autonomous`)
+
+With `--autonomous`, run from invocation to a **posted draft PR** with no interactive stops — this flag is the user's standing approval for everything up to and including the draft PR (it implies `--ship` and also waives the Phase 4 plan gate). Specifically:
+
+- **Phase 3 questions are answered by you, not the user.** Make the best evidence-based call for each, and document every such call in the PR body under an **"Autonomous decisions"** section (decision, why, what would change it). If a question is truly unanswerable and the wrong guess would be expensive, stop with status `blocked` and the question as `detail` — that is the only stop.
+- **Phase 4:** still produce the full plan in your output (it's the audit trail), but do not wait.
+- **Phase 7:** push and open the **draft** PR directly, then set status `done` with the PR URL. Never a non-draft PR, never Jira/Slack writes — those limits are unchanged.
+- Rules 3–6 (AC as contract, conventions, no invented behavior beyond documented decisions, honest verification) apply in full; a failing verification still blocks shipping.

@@ -144,6 +144,20 @@ Every agent action (yours, the supervisor's, or a diagnosis) lands in the collap
 **Activity** card, backed by a gitignored `.journal.jsonl`. Launching an item that already
 has a live session returns 409 — clear the session note to relaunch.
 
+### Autonomous mode and the Approvals card
+
+Launch prompts carry `--autonomous` (disable with `AUTONOMOUS=off`): skills run to their
+safe terminus with no interactive stops — implement-ticket goes all the way to a **posted
+draft PR** (product judgment calls documented in the PR body under "Autonomous
+decisions"), address-review fixes and pushes to your own branch, fix-CI pushes its fix.
+The gates that remain are exactly the **outward-facing writes** — submitting a review on
+a colleague's PR, posting reply comments — and those are staged, not skipped: the session
+writes a `.approval.sh` with the exact command plus an `approval` entry in its status
+file, and the dashboard's **Needs approval** card shows each one with one-click
+Approve (runs the staged script in that worktree) / Dismiss. Merging, Jira writes, and
+non-draft PRs remain off-limits in every mode, and the supervisor is forbidden from
+clicking approvals — they're yours.
+
 ## Scope rules
 
 This tool stays small on purpose. Baked-in constraints:

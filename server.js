@@ -97,6 +97,15 @@ export const CONFIG = {
   // at their worktree root (see the skills' "Session status file" section).
   // It's ignored when judging worktree cleanliness and removed before cleanup.
   statusFileName: ".agent-status.json",
+  // Launch prompts get --autonomous appended: skills run to their safe
+  // terminus (draft PRs, pushes to own branches) and stage outward-facing
+  // actions as one-click approvals instead of stopping at interactive gates.
+  // Disable with AUTONOMOUS=off to get the fully-gated interactive skills.
+  autonomousLaunches: process.env.AUTONOMOUS !== "off",
+  // A session staging an approval writes this script at its worktree root; the
+  // Approve button runs it there.
+  approvalScriptName: ".approval.sh",
+  approvalTimeoutMs: 180_000,
   // Auto-diagnosis of red signals via one-shot headless claude runs. Read-only:
   // the allowed tools are gh inspection commands. Disable with DIAGNOSE=off.
   diagnosis: {
@@ -217,20 +226,29 @@ export const categorizePr = (pr) => {
   return { bucket, reasons, defect };
 };
 
+const autonomous = (skillPrompt) =>
+  CONFIG.autonomousLaunches ? `${skillPrompt} --autonomous` : skillPrompt;
+
 // Derives the agent action for a PR of yours. Prompts are built only from the
 // validated PR number — never from titles or other free text.
 export const launchForPr = (pr) => {
   if (!Number.isInteger(pr.number)) return null;
   if ((pr.reviewDecision === "CHANGES_REQUESTED" && !changesAddressed(pr)) || pr.openThreads > 0) {
-    return { label: "address review", prompt: `/address-review #${pr.number}`, repo: pr.repo };
+    return { label: "address review", prompt: autonomous(`/address-review #${pr.number}`), repo: pr.repo };
   }
   if (pr.mergeable === "CONFLICTING") {
-    return { label: "resolve conflicts", prompt: `/resolve-conflicts #${pr.number}`, repo: pr.repo };
+    return {
+      label: "resolve conflicts",
+      prompt: autonomous(`/resolve-conflicts #${pr.number}`),
+      repo: pr.repo,
+    };
   }
   if (pr.ci === "failure") {
     return {
       label: "fix CI",
-      prompt: `Investigate and fix the failing CI checks on PR #${pr.number}.`,
+      prompt: CONFIG.autonomousLaunches
+        ? `Investigate and fix the failing CI checks on PR #${pr.number}. Work autonomously: commit and push the fix to the PR branch without stopping for approval.`
+        : `Investigate and fix the failing CI checks on PR #${pr.number}.`,
       repo: pr.repo,
     };
   }
@@ -242,15 +260,15 @@ export const launchForPr = (pr) => {
 export const launchForReview = (pr) => {
   if (!Number.isInteger(pr.number)) return null;
   return pr.viewerReviewState
-    ? { label: "re-review", prompt: `/verify-review #${pr.number}`, repo: pr.repo }
-    : { label: "review", prompt: `/deep-review #${pr.number}`, repo: pr.repo };
+    ? { label: "re-review", prompt: autonomous(`/verify-review #${pr.number}`), repo: pr.repo }
+    : { label: "review", prompt: autonomous(`/deep-review #${pr.number}`), repo: pr.repo };
 };
 
 export const launchForTicket = (item) => {
   if (item.prs.length > 0 || !/^PY-\d+$/.test(item.key ?? "")) return null;
   return {
     label: "implement",
-    prompt: `/implement-ticket ${item.key}`,
+    prompt: autonomous(`/implement-ticket ${item.key}`),
     repo: item.parentPrs?.[0]?.repo ?? null,
   };
 };
@@ -885,7 +903,14 @@ export const sessionStatusOf = (worktreePath) => {
     const state = ["working", "awaiting-approval", "blocked", "done"].includes(raw.state)
       ? raw.state
       : "working";
-    return { state, detail: String(raw.detail ?? "").slice(0, 200) };
+    const approval =
+      raw.approval && typeof raw.approval === "object"
+        ? {
+            label: String(raw.approval.label ?? "approve").slice(0, 60),
+            detail: String(raw.approval.detail ?? "").slice(0, 200),
+          }
+        : null;
+    return { state, detail: String(raw.detail ?? "").slice(0, 200), ...(approval && { approval }) };
   } catch {
     return null;
   }
@@ -1010,6 +1035,65 @@ const startServer = () => {
           );
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true }));
+        }
+      } else if (req.method === "POST" && (req.url === "/api/approve" || req.url === "/api/dismiss")) {
+        const { id } = JSON.parse((await readBody(req)) || "{}");
+        const record = typeof id === "string" ? launches.get(id) : null;
+        const session = record?.worktree ? sessionStatusOf(record.worktree) : null;
+        const writeStatus = (detail) =>
+          writeFileSync(
+            join(record.worktree, CONFIG.statusFileName),
+            JSON.stringify({ state: "done", detail }),
+          );
+        if (!record || session?.state !== "awaiting-approval" || !session.approval) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "no staged approval for that item" }));
+        } else if (req.url === "/api/dismiss") {
+          writeStatus(`dismissed: ${session.approval.label}`);
+          appendJournal({
+            actor: "you",
+            action: `dismissed: ${session.approval.label}`,
+            id,
+            detail: session.approval.detail,
+          });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+        } else {
+          const script = join(record.worktree, CONFIG.approvalScriptName);
+          if (!existsSync(script)) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: `${CONFIG.approvalScriptName} missing from the worktree` }));
+          } else {
+            const result = await new Promise((resolve) => {
+              execFile(
+                "bash",
+                [script],
+                { cwd: record.worktree, timeout: CONFIG.approvalTimeoutMs, encoding: "utf8" },
+                (err, stdout, stderr) => resolve({ err, stdout, stderr }),
+              );
+            });
+            if (result.err) {
+              const detail = String(result.stderr || result.err.message).slice(-300);
+              appendJournal({
+                actor: "you",
+                action: `approval FAILED: ${session.approval.label}`,
+                id,
+                detail,
+              });
+              res.writeHead(500, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: `approval script failed: ${detail.slice(-160)}` }));
+            } else {
+              writeStatus(`approved: ${session.approval.label}`);
+              appendJournal({
+                actor: "you",
+                action: `approved: ${session.approval.label}`,
+                id,
+                detail: session.approval.detail,
+              });
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ ok: true, output: String(result.stdout).slice(-400) }));
+            }
+          }
         }
       } else if (req.method === "POST" && req.url === "/api/clear-launch") {
         const { id } = JSON.parse((await readBody(req)) || "{}");

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  CONFIG,
   extractTicketKeys,
   effectiveCi,
   categorizePr,
@@ -117,7 +118,7 @@ test("categorizePr: unresolved review threads need you and launch address-review
   assert.ok(categorizePr({ ...basePr, openThreads: 1 }).reasons.includes("1 open thread"));
   assert.equal(
     launchForPr({ ...launchPr(), openThreads: 2 }).prompt,
-    "/address-review #7364",
+    "/address-review #7364 --autonomous",
   );
 });
 
@@ -253,10 +254,10 @@ test("launchForPr: no address-review once fixes are pushed; conflicts still laun
 test("launchForReview: prior review of yours makes it a verify-review re-review", () => {
   assert.deepEqual(launchForReview({ ...launchPr(), viewerReviewState: "CHANGES_REQUESTED" }), {
     label: "re-review",
-    prompt: "/verify-review #7364",
+    prompt: "/verify-review #7364 --autonomous",
     repo: "PerformYard/PerformYard",
   });
-  assert.equal(launchForReview({ ...launchPr(), viewerReviewState: null }).prompt, "/deep-review #7364");
+  assert.equal(launchForReview({ ...launchPr(), viewerReviewState: null }).prompt, "/deep-review #7364 --autonomous");
 });
 
 test("buildItems relabels merge-readiness as move-to-QA on pre-QA tickets", () => {
@@ -390,7 +391,7 @@ const launchPr = (overrides = {}) => ({
 test("launchForPr maps PR state to the right skill prompt, in priority order", () => {
   assert.deepEqual(launchForPr(launchPr({ reviewDecision: "CHANGES_REQUESTED" })), {
     label: "address review",
-    prompt: "/address-review #7364",
+    prompt: "/address-review #7364 --autonomous",
     repo: "PerformYard/PerformYard",
   });
   assert.equal(
@@ -398,10 +399,49 @@ test("launchForPr maps PR state to the right skill prompt, in priority order", (
     "address review",
   );
   assert.equal(launchForPr(launchPr({ mergeable: "CONFLICTING", ci: "failure" })).label, "resolve conflicts");
-  assert.equal(
-    launchForPr(launchPr({ ci: "failure" })).prompt,
-    "Investigate and fix the failing CI checks on PR #7364.",
+  assert.ok(
+    launchForPr(launchPr({ ci: "failure" })).prompt.startsWith(
+      "Investigate and fix the failing CI checks on PR #7364.",
+    ),
   );
+  assert.ok(launchForPr(launchPr({ ci: "failure" })).prompt.includes("Work autonomously"));
+});
+
+test("autonomous flag is omitted when autonomousLaunches is off", () => {
+  CONFIG.autonomousLaunches = false;
+  try {
+    assert.equal(
+      launchForPr(launchPr({ reviewDecision: "CHANGES_REQUESTED" })).prompt,
+      "/address-review #7364",
+    );
+    assert.equal(
+      launchForPr(launchPr({ ci: "failure" })).prompt,
+      "Investigate and fix the failing CI checks on PR #7364.",
+    );
+  } finally {
+    CONFIG.autonomousLaunches = true;
+  }
+});
+
+test("sessionStatusOf passes a staged approval through, sanitized", () => {
+  const dir = mkdtempSync(join(tmpdir(), "inflight-ap-"));
+  try {
+    writeFileSync(
+      join(dir, ".agent-status.json"),
+      JSON.stringify({
+        state: "awaiting-approval",
+        detail: "review staged",
+        approval: { label: "submit review (2 findings)", detail: "posts the verified review" },
+      }),
+    );
+    assert.deepEqual(sessionStatusOf(dir), {
+      state: "awaiting-approval",
+      detail: "review staged",
+      approval: { label: "submit review (2 findings)", detail: "posts the verified review" },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("launchForPr returns null when no agent action applies", () => {
@@ -411,10 +451,10 @@ test("launchForPr returns null when no agent action applies", () => {
 });
 
 test("launchForReview and launchForTicket build their prompts", () => {
-  assert.equal(launchForReview(launchPr()).prompt, "/deep-review #7364");
+  assert.equal(launchForReview(launchPr()).prompt, "/deep-review #7364 --autonomous");
   assert.deepEqual(launchForTicket({ key: "PY-13548", prs: [] }), {
     label: "implement",
-    prompt: "/implement-ticket PY-13548",
+    prompt: "/implement-ticket PY-13548 --autonomous",
     repo: null,
   });
   assert.equal(launchForTicket({ key: "PY-13548", prs: [{ number: 1 }] }), null);
@@ -647,7 +687,7 @@ test("buildItems references parent PRs on riding subtasks without attaching them
     { number: 7364, url: "https://github.com/PerformYard/PerformYard/pull/7364", repo: "PerformYard/PerformYard" },
   ]);
   assert.equal(sub.section, "no_pr");
-  assert.equal(sub.launch.prompt, "/implement-ticket PY-14156");
+  assert.equal(sub.launch.prompt, "/implement-ticket PY-14156 --autonomous");
   assert.equal(sub.launch.repo, "PerformYard/PerformYard");
   const parent = items.find((item) => item.key === "PY-13548");
   assert.equal(parent.prs.length, 1);
