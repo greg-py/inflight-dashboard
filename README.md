@@ -100,11 +100,21 @@ Terminal.app), Node 18+, an authenticated `gh` CLI (`gh auth status`), Claude Co
 ## Run
 
 ```bash
-npm start
+npm run up
 ```
 
-Open <http://localhost:4477> and pin the tab. It refreshes every 2 minutes and on tab
-focus. Tokens never leave the server process — the browser only talks to localhost.
+One command brings up the whole stack: the server wrapped in `caffeinate -ims` (the
+machine stays awake exactly while the dashboard runs), a Terminal window running the
+supervisor loop (`claude --model opus --effort low` + `/loop 10m /dashboard-supervisor`),
+and a browser tab. It's idempotent — already-running pieces are detected and skipped
+(the supervisor via its journal heartbeat). `npm run down` stops the tracked server,
+releases the wake lock, and closes the supervisor window. `npm run status` shows server,
+wake lock, and supervisor-heartbeat health; `bin/inflight logs` tails the server log.
+`bin/inflight up --no-supervisor` starts the dashboard alone, and plain `npm start` still
+runs just the server in the foreground.
+
+The dashboard refreshes every 3 minutes and on tab focus. Tokens never leave the server
+process — the browser only talks to localhost, and the server binds to 127.0.0.1.
 
 ```bash
 npm test
