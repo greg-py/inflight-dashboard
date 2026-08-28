@@ -590,7 +590,7 @@ export const parseDiagnosis = (output) => {
 
 const diagnosisPromptFor = (pr, key) =>
   key.startsWith("ci:")
-    ? `PR #${pr.number} in ${pr.repo} has failing CI on its latest commit. Run gh pr checks ${pr.number} --repo ${pr.repo} to find the failing checks, then inspect their logs (gh run view --log-failed). Known rerun-safe flaky patterns in this codebase: ${CONFIG.diagnosis.knownFlakes.join("; ")}. Decide whether the failure is a known-pattern flake or a real defect. Reply with EXACTLY one final line, nothing after it: "FLAKE: <which pattern, ≤15 words>" or "REAL: <root cause, ≤15 words>".`
+    ? `PR #${pr.number} in ${pr.repo} has failing CI on its latest commit. Run gh pr checks ${pr.number} --repo ${pr.repo} to find the failing checks, then inspect their logs (gh run view --log-failed). IGNORE the "${CONFIG.qaGateCheck}" check entirely — it is a human approval gate, not CI, and it is never the answer; diagnose the OTHER failing check(s). Known rerun-safe flaky patterns in this codebase: ${CONFIG.diagnosis.knownFlakes.join("; ")}. Decide whether the failure is a known-pattern flake or a real defect. Reply with EXACTLY one final line, nothing after it: "FLAKE: <which pattern, ≤15 words>" or "REAL: <root cause, ≤15 words>".`
     : `PR #${pr.number} in ${pr.repo} has a changes-requested review. Read the review feedback (gh pr view ${pr.number} --repo ${pr.repo} --comments, and gh api repos/${pr.repo}/pulls/${pr.number}/comments for inline threads). Summarize what the reviewer(s) actually want changed. Reply with EXACTLY one final line, nothing after it: "WANTS: <the asks, ≤25 words>".`;
 
 const diagnosing = new Set();
