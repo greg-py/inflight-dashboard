@@ -122,6 +122,21 @@ test("categorizePr: unresolved review threads need you and launch address-review
   );
 });
 
+test("open threads defer to pushed changes: ball is in the reviewer's court", () => {
+  const addressed = {
+    ...basePr,
+    reviewDecision: "CHANGES_REQUESTED",
+    openThreads: 2,
+    changesRequestedAt: "2026-08-28T17:52:07Z",
+    lastCommitAt: "2026-08-28T18:40:44Z",
+  };
+  const result = categorizePr(addressed);
+  assert.equal(result.bucket, "waiting");
+  assert.ok(result.reasons.includes("changes pushed · awaiting re-review"));
+  assert.ok(!result.reasons.some((r) => r.includes("open thread")));
+  assert.equal(launchForPr({ ...launchPr(), ...addressed }), null);
+});
+
 test("categorizePr + sectionFor: a passed QA gate beats the QA hold", () => {
   const passed = categorizePr({ ...basePr, reviewDecision: "APPROVED", qaGate: "passed" });
   assert.ok(passed.reasons.includes("QA passed · ready to merge"));

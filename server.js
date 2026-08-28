@@ -117,6 +117,9 @@ export const CONFIG = {
     maxTurns: 15,
     timeoutMs: 240_000,
     maxConcurrent: 1,
+    // A failed diagnosis run is retried after this long — transient claude/gh
+    // failures must not permanently block a verdict for that commit.
+    errorRetryMs: 30 * 60 * 1000,
     allowedTools: [
       "Bash(gh pr checks:*)",
       "Bash(gh pr view:*)",
@@ -206,7 +209,7 @@ export const categorizePr = (pr) => {
   if (pr.reviewDecision === "CHANGES_REQUESTED" && !changesAddressed(pr)) {
     reasons.push("changes requested");
   }
-  if (pr.openThreads > 0) {
+  if (pr.openThreads > 0 && !changesAddressed(pr)) {
     reasons.push(`${pr.openThreads} open thread${pr.openThreads === 1 ? "" : "s"}`);
   }
   if (pr.ci === "failure") reasons.push("CI failing");
@@ -236,7 +239,10 @@ const autonomous = (skillPrompt) =>
 // validated PR number — never from titles or other free text.
 export const launchForPr = (pr) => {
   if (!Number.isInteger(pr.number)) return null;
-  if ((pr.reviewDecision === "CHANGES_REQUESTED" && !changesAddressed(pr)) || pr.openThreads > 0) {
+  if (
+    (pr.reviewDecision === "CHANGES_REQUESTED" || pr.openThreads > 0) &&
+    !changesAddressed(pr)
+  ) {
     return { label: "address review", prompt: autonomous(`/address-review #${pr.number}`), repo: pr.repo };
   }
   if (pr.mergeable === "CONFLICTING") {
@@ -674,7 +680,14 @@ const scheduleDiagnoses = (items) => {
       // the autonomous pipeline's own output and deserve diagnosis.
       if (pr.isDraft && !item.key) continue;
       const key = diagnosisKeyFor(pr);
-      if (!key || diagnoses.has(key) || diagnosing.has(key)) continue;
+      if (!key || diagnosing.has(key)) continue;
+      const existing = diagnoses.get(key);
+      if (
+        existing &&
+        !(existing.kind === "error" && Date.now() - existing.at > CONFIG.diagnosis.errorRetryMs)
+      ) {
+        continue;
+      }
       if (diagnosing.size >= CONFIG.diagnosis.maxConcurrent) return;
       runDiagnosis(pr, key);
     }
@@ -891,7 +904,12 @@ export const worktreeStatusOf = (worktreePath) => {
     const git = (args) => execSync(`git ${args}`, { cwd: worktreePath, encoding: "utf8" }).trim();
     const dirty = git("status --porcelain")
       .split("\n")
-      .filter((line) => line.trim() !== "" && !line.endsWith(CONFIG.statusFileName));
+      .filter(
+        (line) =>
+          line.trim() !== "" &&
+          !line.endsWith(CONFIG.statusFileName) &&
+          !line.endsWith(CONFIG.approvalScriptName),
+      );
     if (dirty.length > 0) return { state: "dirty" };
     const unpushed = Number(git("rev-list --count HEAD --not --remotes"));
     return unpushed > 0 ? { state: "unpushed", unpushed } : { state: "clean" };
@@ -1121,11 +1139,35 @@ const startServer = () => {
           if (record.worktree && existsSync(record.worktree) && !record.error) {
             try {
               rmSync(join(record.worktree, CONFIG.statusFileName), { force: true });
-              execSync(`git worktree remove ${shellQuote(record.worktree)}`, {
-                cwd: record.repoPath ?? repoPathFor(null),
-                encoding: "utf8",
-                stdio: "pipe",
-              });
+              rmSync(join(record.worktree, CONFIG.approvalScriptName), { force: true });
+              const cwd = record.repoPath ?? repoPathFor(null);
+              const git = (args) =>
+                execSync(`git ${args}`, { cwd: record.worktree, encoding: "utf8", stdio: "pipe" });
+              try {
+                execSync(`git worktree remove ${shellQuote(record.worktree)}`, {
+                  cwd,
+                  encoding: "utf8",
+                  stdio: "pipe",
+                });
+              } catch (removeErr) {
+                // A finished session's leftovers are safe to force-remove when
+                // nothing is unpushed and the only dirt is untracked files
+                // (staging artifacts like drafted reply bodies).
+                const unpushed = Number(git("rev-list --count HEAD --not --remotes").trim());
+                const onlyUntracked = git("status --porcelain")
+                  .split("\n")
+                  .filter(Boolean)
+                  .every((line) => line.startsWith("??"));
+                if (unpushed === 0 && onlyUntracked) {
+                  execSync(`git worktree remove --force ${shellQuote(record.worktree)}`, {
+                    cwd,
+                    encoding: "utf8",
+                    stdio: "pipe",
+                  });
+                } else {
+                  throw removeErr;
+                }
+              }
             } catch (err) {
               removalError = String(err.stderr ?? err.message).split("\n")[0].slice(0, 160);
             }
