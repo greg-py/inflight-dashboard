@@ -175,7 +175,7 @@
   </div>
 </main>
 <script>
-  const REFRESH_MS = 120_000;
+  const REFRESH_MS = 180_000;
   const SECTIONS = [
     { id: "needs_you", label: "Needs you" },
     { id: "waiting", label: "Waiting on others" },
@@ -378,7 +378,12 @@
     buildAgentControls(data.agentOptions);
     const banners = [];
     for (const [name, source] of Object.entries(data.sources)) {
-      if (!source.ok) banners.push(`<div class="banner">${esc(name)}: ${esc(source.error)}</div>`);
+      if (!source.ok) {
+        const stale = source.staleDataFrom
+          ? ` — showing data from ${agoText(Date.parse(source.staleDataFrom))}`
+          : "";
+        banners.push(`<div class="banner">${esc(name)}: ${esc(source.error)}${stale}</div>`);
+      }
     }
     document.getElementById("banners").innerHTML = banners.join("");
 

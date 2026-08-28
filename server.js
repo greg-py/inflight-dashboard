@@ -21,6 +21,11 @@ loadDotEnv();
 // constants if the queries ever need to change.
 export const CONFIG = {
   port: Number(process.env.PORT || 4477),
+  // Upstream (Jira + GitHub) is fetched at most once per this window; every
+  // /api/data request inside it is served from cache. Concurrent requests
+  // share a single in-flight fetch. Keeps any number of open tabs and
+  // supervisor polls inside the GitHub GraphQL point budget.
+  upstreamTtlMs: Number(process.env.UPSTREAM_TTL_MS || 120_000),
   jiraBaseUrl: process.env.JIRA_BASE_URL || "https://performyard.atlassian.net",
   jiraJql:
     "assignee = currentUser() AND project = PY AND statusCategory != Done ORDER BY updated DESC",
@@ -429,7 +434,7 @@ fragment PrFields on PullRequest {
   repository { nameWithOwner }
   viewerLatestReview { state }
   latestOpinionatedReviews(first: 10) { nodes { state submittedAt } }
-  reviewThreads(first: 100) { nodes { isResolved comments(last: 1) { nodes { author { login } } } } }
+  reviewThreads(first: 50) { nodes { isResolved comments(last: 1) { nodes { author { login } } } } }
   commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) {
     nodes { ... on CheckRun { name conclusion status } ... on StatusContext { context state } }
   } } } } }
@@ -674,19 +679,78 @@ const launchInfoFor = (id) => {
   return { ...base, status, session: sessionStatusOf(record.worktree) };
 };
 
+// Upstream cache: the expensive Jira/GitHub fetch happens at most once per
+// TTL and is shared by concurrent requests. Per-user state (hidden, launches,
+// diagnoses, journal) is layered on fresh for every request, so actions never
+// look reverted while the cache is warm. On upstream failure the last good
+// data is served, marked stale, instead of a half-empty board.
+let upstreamCache = null;
+let upstreamFetchedAt = 0;
+let upstreamInFlight = null;
+const lastGood = { jira: null, jiraAt: 0, github: null, githubAt: 0 };
+
+const fetchUpstream = async () => {
+  const [jira, github] = await Promise.allSettled([fetchJira(), fetchGithub()]);
+  const now = Date.now();
+  if (jira.status === "fulfilled") {
+    lastGood.jira = jira.value;
+    lastGood.jiraAt = now;
+  }
+  if (github.status === "fulfilled") {
+    lastGood.github = github.value;
+    lastGood.githubAt = now;
+  }
+  const sourceStatus = (result, at) =>
+    result.status === "fulfilled"
+      ? { ok: true }
+      : {
+          ok: false,
+          error: result.reason.message,
+          ...(at ? { staleDataFrom: new Date(at).toISOString() } : {}),
+        };
+  return {
+    fetchedAt: new Date().toISOString(),
+    sources: {
+      jira: sourceStatus(jira, lastGood.jiraAt),
+      github: sourceStatus(github, lastGood.githubAt),
+    },
+    jiraIssues: jira.status === "fulfilled" ? jira.value : (lastGood.jira ?? []),
+    github:
+      github.status === "fulfilled"
+        ? github.value
+        : (lastGood.github ?? { mine: [], reviewRequests: [], merged: [] }),
+  };
+};
+
+const getUpstream = async () => {
+  if (upstreamCache && Date.now() - upstreamFetchedAt < CONFIG.upstreamTtlMs) {
+    return upstreamCache;
+  }
+  if (!upstreamInFlight) {
+    upstreamInFlight = fetchUpstream()
+      .then((result) => {
+        upstreamCache = result;
+        upstreamFetchedAt = Date.now();
+        return result;
+      })
+      .finally(() => {
+        upstreamInFlight = null;
+      });
+  }
+  return upstreamInFlight;
+};
+
 const getData = async () => {
   agentDefaults = readAgentDefaults();
-  const [jira, github] = await Promise.allSettled([fetchJira(), fetchGithub()]);
+  const upstream = await getUpstream();
   const withHidden = (entry) => ({
     ...entry,
     hidden: hiddenIds.has(entry.id),
     launched: launchInfoFor(entry.id),
   });
-  const items = buildItems(
-    jira.status === "fulfilled" ? jira.value : [],
-    github.status === "fulfilled" ? github.value.mine : [],
-    github.status === "fulfilled" ? github.value.merged : [],
-  ).map(withHidden);
+  const items = buildItems(upstream.jiraIssues, upstream.github.mine, upstream.github.merged).map(
+    withHidden,
+  );
   for (const item of items) {
     for (const pr of item.prs) {
       const key = diagnosisKeyFor(pr);
@@ -696,16 +760,10 @@ const getData = async () => {
   }
   scheduleDiagnoses(items);
   return (lastPayload = {
-    fetchedAt: new Date().toISOString(),
-    sources: {
-      jira: jira.status === "fulfilled" ? { ok: true } : { ok: false, error: jira.reason.message },
-      github:
-        github.status === "fulfilled" ? { ok: true } : { ok: false, error: github.reason.message },
-    },
+    fetchedAt: upstream.fetchedAt,
+    sources: upstream.sources,
     items,
-    reviewRequests: (github.status === "fulfilled" ? github.value.reviewRequests : []).map(
-      withHidden,
-    ),
+    reviewRequests: upstream.github.reviewRequests.map(withHidden),
     journal: readJournal(30),
     agentOptions: Object.fromEntries(
       Object.entries(CONFIG.agents).map(([name, agent]) => [
