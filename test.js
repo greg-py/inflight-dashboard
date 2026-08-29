@@ -224,7 +224,7 @@ test("launchForReview: verify-review on re-requests, deep-review otherwise", () 
   assert.equal(launchForReview({ ...basePr, viewerReviewState: "CHANGES_REQUESTED" }).prompt, "/verify-review #7364 --autonomous");
   const fresh = launchForReview({ ...basePr, viewerReviewState: null });
   assert.equal(fresh.prompt, "/deep-review #7364 --autonomous");
-  assert.equal(fresh.fingerprint, "prereview:PerformYard/PerformYard#7364");
+  assert.equal(fresh.fingerprint, "prereview:PerformYard/PerformYard#7364:2026-08-20T10:00:00Z");
 });
 
 test("launchForTicket: implement for keyed no-PR tickets only", () => {
@@ -516,6 +516,30 @@ test("decide: review requests pre-launch unless draft/owned; launch cap and budg
   );
   assert.equal(noBudget[0].type, "defer");
   assert.ok(noBudget[0].reason.includes("budget"));
+});
+
+test("decide: riding subtasks defer while a sibling or parent session is active", () => {
+  const sibling = itemFixture({
+    id: "PY-2",
+    key: "PY-2",
+    parentKey: "PY-100",
+    session: { state: "running" },
+  });
+  const fresh = itemFixture({
+    id: "PY-3",
+    key: "PY-3",
+    parentKey: "PY-100",
+    isSubtask: true,
+    section: "no_pr",
+    launch: { kind: "implement", label: "implement", prompt: "x", repo: null, fingerprint: "implement:PY-3" },
+  });
+  const ctx = ctxFixture({ sessions: [{ id: "s1", itemId: "PY-2", state: "running" }] });
+  const actions = decide({ items: [sibling, fresh], reviewRequests: [] }, ctx);
+  assert.equal(actions.filter((a) => a.type === "start-session").length, 0);
+  assert.ok(actions.some((a) => a.type === "defer" && a.reason.includes("parent branch busy")));
+  const freeCtx = ctxFixture({ sessions: [] });
+  const freed = decide({ items: [{ ...sibling, session: null }, fresh], reviewRequests: [] }, freeCtx);
+  assert.equal(freed.filter((a) => a.type === "start-session").length, 1);
 });
 
 test("decide: finished sessions with worktrees get housekeeping", () => {
