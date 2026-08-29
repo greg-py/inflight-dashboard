@@ -22,6 +22,7 @@ import {
   slugFor,
   diagnosisKeyFor,
   parseDiagnosis,
+  statusDriftFor,
 } from "./lib/model.js";
 import { mapReviewPr } from "./lib/integrations.js";
 import {
@@ -328,9 +329,84 @@ test("parseDiagnosis and diagnosisKeyFor", () => {
   assert.equal(diagnosisKeyFor({ ...basePr, ci: "failure" }), "ci:PerformYard/PerformYard#7364:2026-08-20T10:00:00Z");
   assert.equal(
     diagnosisKeyFor({ ...basePr, reviewDecision: "CHANGES_REQUESTED", changesRequestedAt: "2026-08-21T10:00:00Z" }),
-    "review:PerformYard/PerformYard#7364:2026-08-21T10:00:00Z",
+    "review:PerformYard/PerformYard#7364:2026-08-21T10:00:00Z:2026-08-20T10:00:00Z:0h0b",
+  );
+  assert.equal(
+    diagnosisKeyFor({ ...basePr, botThreads: 2 }),
+    "review:PerformYard/PerformYard#7364:none:2026-08-20T10:00:00Z:0h2b",
+    "bot threads alone earn a digest",
   );
   assert.equal(diagnosisKeyFor(basePr), null);
+});
+
+test("stuck CI: pending with an old head commit needs you", () => {
+  const stuck = categorizePr({ ...basePr, ci: "pending", ciStuckHours: 5 });
+  assert.equal(stuck.bucket, "needs_you");
+  assert.equal(stuck.defect, true);
+  assert.ok(stuck.reasons.includes("CI stuck 5h"));
+  const running = categorizePr({ ...basePr, ci: "pending", ciStuckHours: 0 });
+  assert.equal(running.bucket, "waiting");
+  assert.ok(running.reasons.includes("CI running"));
+});
+
+test("statusDriftFor: names the transition PR reality is owed", () => {
+  const openPr = { ...basePr, isDraft: false };
+  assert.deepEqual(statusDriftFor({ key: "PY-1", status: "In Progress", prs: [openPr] }), {
+    target: "In Code Review",
+    why: "PR #7364 open",
+  });
+  assert.equal(statusDriftFor({ key: "PY-1", status: "In Code Review", prs: [openPr] }), null);
+  assert.deepEqual(
+    statusDriftFor({
+      key: "PY-1",
+      status: "In Code Review",
+      prs: [{ ...openPr, reviewDecision: "APPROVED", ci: "success" }],
+    }),
+    { target: "Ready To Test", why: "PR approved · CI green" },
+  );
+  assert.deepEqual(
+    statusDriftFor({
+      key: "PY-1",
+      status: "In Testing",
+      prs: [{ ...openPr, reviewDecision: "APPROVED", ci: "success", qaGate: "passed" }],
+    }),
+    { target: "READY TO MERGE", why: "QA gate passed" },
+  );
+  assert.deepEqual(
+    statusDriftFor({ key: "PY-1", status: "In Testing", prs: [], mergedPrs: [{ number: 7350 }] }),
+    { target: "Done", why: "PR #7350 merged" },
+  );
+  assert.equal(statusDriftFor({ key: "PY-1", status: "To Do", prs: [{ ...openPr, isDraft: true }] }), null);
+  assert.equal(statusDriftFor({ key: null, status: "To Do", prs: [openPr] }), null);
+  assert.equal(
+    statusDriftFor({ key: "PY-1", status: "To Do", prs: [], parentPrs: [{ number: 1 }] }),
+    null,
+    "riding subtasks are exempt",
+  );
+});
+
+test("decide: stages transitions once per state, unstages when drift resolves", () => {
+  const drifting = itemFixture({
+    id: "PY-1",
+    key: "PY-1",
+    status: "In Progress",
+    prs: [{ ...basePr, isDraft: false, launch: null }],
+  });
+  const ctx = ctxFixture({});
+  const actions = decide({ items: [drifting], reviewRequests: [] }, ctx);
+  const stage = actions.find((a) => a.type === "stage-transition");
+  assert.ok(stage);
+  assert.equal(stage.target, "In Code Review");
+  const staged = ctxFixture({ pendingTransitions: new Map([["PY-1", { key: stage.key }]]) });
+  assert.ok(!decide({ items: [drifting], reviewRequests: [] }, staged).some((a) => a.type === "stage-transition"));
+  const dismissed = ctxFixture({ actedOn: new Map([[stage.key, 1]]) });
+  assert.ok(!decide({ items: [drifting], reviewRequests: [] }, dismissed).some((a) => a.type === "stage-transition"));
+  const resolved = itemFixture({ id: "PY-1", key: "PY-1", status: "In Code Review", prs: [{ ...basePr, launch: null }] });
+  const unstage = decide(
+    { items: [resolved], reviewRequests: [] },
+    ctxFixture({ pendingTransitions: new Map([["PY-1", { key: stage.key }]]) }),
+  );
+  assert.ok(unstage.some((a) => a.type === "unstage-transition" && a.itemId === "PY-1"));
 });
 
 // --- sessions: statuses, args, log rendering -------------------------------------
@@ -417,6 +493,7 @@ const ctxFixture = (overrides = {}) => ({
   actedOn: new Map(),
   knownItems: new Set(),
   seeded: true,
+  pendingTransitions: new Map(),
   budgets: { claude: true, codex: true },
   ...overrides,
 });
@@ -424,6 +501,7 @@ const ctxFixture = (overrides = {}) => ({
 const itemFixture = (overrides = {}) => ({
   id: "PY-1",
   key: "PY-1",
+  status: "In Code Review",
   hidden: false,
   session: null,
   section: "needs_you",
@@ -488,7 +566,8 @@ test("decide: new tickets implement once; known/merged/acted don't", () => {
   const acted = decide({ items: [fresh], reviewRequests: [] }, ctxFixture({ actedOn: new Map([["implement:PY-9", 1]]) }));
   assert.equal(acted.length, 0);
   const merged = decide({ items: [{ ...fresh, mergedPrs: [{ number: 1 }] }], reviewRequests: [] }, ctxFixture());
-  assert.equal(merged.length, 0);
+  assert.equal(merged.filter((a) => a.type === "start-session").length, 0, "merged tickets never implement");
+  assert.ok(merged.some((a) => a.type === "stage-transition" && a.target === "Done"), "merged tickets stage Done");
 });
 
 test("decide: review requests pre-launch unless draft/owned; launch cap and budgets hold", () => {

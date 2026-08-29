@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { ROOT, CONFIG } from "./lib/config.js";
 import { buildItems, tierFor, routeFor } from "./lib/model.js";
-import { getUpstream } from "./lib/integrations.js";
+import { getUpstream, transitionJiraIssue } from "./lib/integrations.js";
 import { scheduleDiagnoses, attachDiagnoses } from "./lib/diagnosis.js";
 import {
   state,
@@ -107,6 +107,7 @@ const payload = async () => {
   return {
     ...snapshot,
     sessions,
+    transitions: [...state.pendingTransitions.values()],
     journal: readJournal(30),
     autopilot: CONFIG.autopilot,
     lastPass: { at: lastPass.at, acted: lastPass.acted },
@@ -259,6 +260,35 @@ const startServer = () => {
         saveState();
         appendJournal({ actor: "you", action: "cleared session", id: session.itemId, detail: session.kind });
         json(res, 200, { ok: true });
+      } else if (req.method === "POST" && req.url === "/api/transition") {
+        const { itemId, action } = JSON.parse((await readBody(req)) || "{}");
+        const pending = typeof itemId === "string" ? state.pendingTransitions.get(itemId) : null;
+        if (!pending || !["approve", "dismiss"].includes(action)) {
+          return json(res, 400, { error: "no staged transition for that item" });
+        }
+        if (action === "approve") {
+          try {
+            await transitionJiraIssue(itemId, pending.target);
+          } catch (err) {
+            appendJournal({
+              actor: "you",
+              action: "transition FAILED",
+              id: itemId,
+              detail: String(err.message).slice(0, 200),
+            });
+            return json(res, 500, { error: err.message });
+          }
+        }
+        state.actedOn.set(pending.key, Date.now());
+        state.pendingTransitions.delete(itemId);
+        appendJournal({
+          actor: "you",
+          action: action === "approve" ? "transitioned ticket" : "dismissed transition",
+          id: itemId,
+          detail: `${pending.status} → ${pending.target}`,
+        });
+        saveState();
+        json(res, 200, { ok: true, target: pending.target });
       } else if (req.method === "POST" && (req.url === "/api/hide" || req.url === "/api/restore")) {
         const { id } = JSON.parse((await readBody(req)) || "{}");
         if (typeof id === "string" && id) {

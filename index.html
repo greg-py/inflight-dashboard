@@ -303,6 +303,16 @@
       <button class="btn" data-dismiss="${esc(entry.id)}">dismiss</button></div></div></div>`;
   };
 
+  const transitionRow = (t) => {
+    const item = lastData?.items.find((i) => i.id === t.itemId);
+    return `<div class="row"><span class="key"><a href="${esc(
+      item?.url ?? `#`,
+    )}" target="_blank" rel="noopener">${esc(t.itemId)}</a></span>
+      <div class="body"><div class="summary">${esc(t.status)} → <strong>${esc(t.target)}</strong> <span class="sub">· ${esc(t.why)}</span></div>
+      <div class="btn-row"><button class="btn primary" data-transition="approve" data-id="${esc(t.itemId)}">move to ${esc(t.target)}</button>
+      <button class="btn" data-transition="dismiss" data-id="${esc(t.itemId)}">dismiss</button></div></div></div>`;
+  };
+
   const renderOverrides = (options) => {
     const el = document.getElementById("overrides");
     if (el.dataset.built) return;
@@ -345,15 +355,19 @@
     const everyEntry = [...data.items, ...data.reviewRequests].filter((e) => !e.hidden);
     const staged = everyEntry.filter((e) => e.session?.state === "staged" && e.session.approval);
     const blocked = everyEntry.filter((e) => e.session?.state === "blocked");
+    const transitions = data.transitions ?? [];
+    const attention = staged.length + blocked.length + transitions.length;
     const chip = document.getElementById("awaiting-chip");
-    chip.hidden = staged.length + blocked.length === 0;
-    chip.textContent = `${staged.length + blocked.length} need${staged.length + blocked.length === 1 ? "s" : ""} you`;
+    chip.hidden = attention === 0;
+    chip.textContent = `${attention} need${attention === 1 ? "s" : ""} you`;
     const approvalsCard = document.getElementById("card-approvals");
-    approvalsCard.hidden = staged.length === 0;
-    if (staged.length) {
+    const approvalCount = staged.length + transitions.length;
+    approvalsCard.hidden = approvalCount === 0;
+    if (approvalCount) {
       approvalsCard.innerHTML =
-        `<div class="card-head h-appr">Needs approval <span class="count">· ${staged.length}</span></div>` +
-        staged.map(approvalRow).join("");
+        `<div class="card-head h-appr">Needs approval <span class="count">· ${approvalCount}</span></div>` +
+        staged.map(approvalRow).join("") +
+        transitions.map(transitionRow).join("");
     }
 
     const active = data.sessions.filter((s) => ["queued", "running", "staged", "blocked"].includes(s.state));
@@ -467,6 +481,21 @@
         t.disabled = true; t.textContent = t.dataset.approve ? "running…" : "dismissing…";
         await post(t.dataset.approve ? "/api/approve" : "/api/dismiss", { id });
         await refresh();
+        return;
+      }
+      if (t.dataset.transition) {
+        const itemId = t.dataset.id;
+        t.disabled = true;
+        t.textContent = t.dataset.transition === "approve" ? "moving…" : "dismissing…";
+        const result = await post("/api/transition", { itemId, action: t.dataset.transition });
+        if (lastData) {
+          lastData.transitions = (lastData.transitions ?? []).filter((x) => x.itemId !== itemId);
+          if (t.dataset.transition === "approve") {
+            const item = lastData.items.find((i) => i.id === itemId);
+            if (item) item.status = result.target;
+          }
+          render(lastData);
+        }
         return;
       }
       if (t.dataset.cancel) { await post("/api/session-cancel", { id: t.dataset.cancel }); await refresh(); return; }
