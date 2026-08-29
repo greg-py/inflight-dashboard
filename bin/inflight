@@ -1,55 +1,27 @@
 #!/usr/bin/env bash
-# inflight — bring the whole dashboard stack up or down with one command.
-#   up [--no-supervisor]  start server (caffeinate-wrapped) + supervisor loop + browser
-#   down                  stop the tracked server (and its wake lock), close the supervisor window
-#   status                server, wake lock, and supervisor-heartbeat health
-#   logs                  tail the server log
+# inflight — the whole stack with one command. The server IS the system now
+# (policy engine included); there is no separate supervisor process.
+#   up       start server (caffeinate-wrapped) + open the dashboard
+#   down     stop the tracked server (releases the wake lock)
+#   status   server, wake lock, engine, and active-session health
+#   logs     tail the server log
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="${INFLIGHT_RUN_DIR:-$HOME/.cache/inflight-dashboard}"
 PID_FILE="$RUN_DIR/server.pid"
-WIN_FILE="$RUN_DIR/supervisor-window"
 LOG_FILE="$RUN_DIR/server.log"
 
 env_port="$(grep -E '^PORT=' "$DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)"
 PORT="${PORT:-${env_port:-4477}}"
 URL="http://localhost:$PORT"
-SUPERVISOR_LAUNCH="claude --model opus --effort low '/loop 10m /dashboard-supervisor'"
-HEARTBEAT_FRESH_SECS=900
 
-server_up() { curl -s --max-time 3 -o /dev/null "$URL/"; }
-
+server_up() { curl -s --max-time 3 -o /dev/null "$URL/api/health"; }
 tracked_pid() { [ -f "$PID_FILE" ] && cat "$PID_FILE" 2>/dev/null || true; }
-
 pid_alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
 
-heartbeat_age_secs() {
-  curl -s --max-time 5 "$URL/api/journal?limit=100" 2>/dev/null | python3 -c "
-import json, sys, time
-try:
-    events = json.load(sys.stdin)['events']
-    passes = [e for e in events if e.get('actor') == 'supervisor' and e.get('action') == 'supervision pass']
-    print(int(time.time() - passes[0]['at'] / 1000) if passes else -1)
-except Exception:
-    print(-1)"
-}
-
-supervisor_window_alive() {
-  [ -f "$WIN_FILE" ] || return 1
-  osascript -e "tell application \"Terminal\" to exists window id $(cat "$WIN_FILE")" 2>/dev/null | grep -q true
-}
-
 cmd_up() {
-  local no_supervisor=0 new_supervisor=0
-  for arg in "$@"; do
-    case "$arg" in
-      --no-supervisor) no_supervisor=1 ;;
-      --new-supervisor) new_supervisor=1 ;;
-    esac
-  done
   mkdir -p "$RUN_DIR"
-
   if server_up; then
     echo "server: already running at $URL"
   else
@@ -61,30 +33,6 @@ cmd_up() {
       echo "server: FAILED to start — last log lines:"; tail -5 "$LOG_FILE"; exit 1
     fi
   fi
-
-  if [ "$no_supervisor" = 1 ]; then
-    echo "supervisor: skipped (--no-supervisor)"
-  else
-    age="$(heartbeat_age_secs)"
-    if [ "$new_supervisor" = 1 ] && supervisor_window_alive; then
-      osascript -e "tell application \"Terminal\" to close window id $(cat "$WIN_FILE")" 2>/dev/null || true
-      rm -f "$WIN_FILE"
-      echo "supervisor: closed the tracked window (--new-supervisor)"
-    fi
-    if [ "$new_supervisor" = 0 ] && supervisor_window_alive; then
-      echo "supervisor: window already open"
-    elif [ "$new_supervisor" = 0 ] && [ "$age" -ge 0 ] && [ "$age" -lt "$HEARTBEAT_FRESH_SECS" ]; then
-      echo "supervisor: a loop is already alive (last pass $((age / 60))m ago) — not spawning another"
-      echo "            (an untracked loop? close its Terminal window, then rerun with --new-supervisor)"
-    else
-      echo "supervisor: opening Terminal with the loop"
-      win="$(osascript \
-        -e "tell application \"Terminal\" to do script \"cd $DIR && $SUPERVISOR_LAUNCH\"" \
-        -e 'tell application "Terminal" to activate' | sed -E 's/.*window id ([0-9]+).*/\1/')"
-      [ -n "$win" ] && echo "$win" > "$WIN_FILE"
-    fi
-  fi
-
   open "$URL"
   echo "up."
 }
@@ -101,47 +49,31 @@ cmd_down() {
     echo "server: not running"
   fi
   rm -f "$PID_FILE"
-
-  if supervisor_window_alive; then
-    osascript -e "tell application \"Terminal\" to close window id $(cat "$WIN_FILE")" 2>/dev/null || true
-    echo "supervisor: window close requested (Terminal may ask to confirm)"
-  else
-    echo "supervisor: no tracked window"
-  fi
-  rm -f "$WIN_FILE"
   echo "down."
 }
 
 cmd_status() {
-  if server_up; then
-    pid="$(tracked_pid)"
-    if pid_alive "$pid"; then
-      echo "server:     running at $URL (pid $pid, wake lock held)"
-    else
-      echo "server:     running at $URL (started outside 'inflight up' — no wake lock tracked)"
-    fi
+  if ! server_up; then echo "server:  DOWN"; return; fi
+  pid="$(tracked_pid)"
+  if pid_alive "$pid"; then
+    echo "server:  running at $URL (pid $pid, wake lock held)"
   else
-    echo "server:     DOWN"
+    echo "server:  running at $URL (started outside 'inflight up' — no wake lock tracked)"
   fi
-
-  age="$(heartbeat_age_secs)"
-  if [ "$age" -lt 0 ]; then
-    echo "supervisor: no heartbeat found in the journal"
-  elif [ "$age" -lt "$HEARTBEAT_FRESH_SECS" ]; then
-    echo "supervisor: alive — last pass $((age / 60))m ago"
-  else
-    echo "supervisor: STALE — last pass $((age / 60))m ago"
-  fi
-
-  supervisor_window_alive && echo "supervisor window: open (id $(cat "$WIN_FILE"))" || true
+  curl -s --max-time 5 "$URL/api/health" | python3 -c "
+import json, sys, time
+h = json.load(sys.stdin)
+age = int(time.time() - h['lastPassAt'] / 1000) if h.get('lastPassAt') else None
+print(f\"engine:  autopilot {'on' if h.get('autopilot') else 'OFF'}\" + (f\", last pass {age // 60}m ago\" if age is not None else \", no pass yet\"))
+print(f\"sessions: {h.get('activeSessions', 0)} active\")"
 }
 
 cmd_logs() { tail -n 100 -f "$LOG_FILE"; }
 
 case "${1:-}" in
-  up) shift; cmd_up "$@" ;;
+  up) cmd_up ;;
   down) cmd_down ;;
   status) cmd_status ;;
   logs) cmd_logs ;;
-  *) echo "usage: inflight up [--no-supervisor|--new-supervisor] | down | status | logs"; exit 1 ;;
+  *) echo "usage: inflight up | down | status | logs"; exit 1 ;;
 esac

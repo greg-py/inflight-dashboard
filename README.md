@@ -1,170 +1,80 @@
 # inflight-dashboard
 
-A single-page local dashboard for tracking in-flight work at a glance: all assigned Jira
-tickets (including subtasks, which board views hide) joined to open GitHub PRs, sorted by
-who's blocked.
+A local dashboard + autonomous engine for in-flight work: all assigned Jira tickets
+(including subtasks boards hide) joined to your open GitHub PRs, sorted by who's blocked —
+with a deterministic policy engine that launches headless coding-agent sessions to address
+what it safely can, and queues the rest as one-click approvals.
 
-## Sections
+## How it works
 
-- **Needs you** — a PR has changes requested (and you haven't pushed fixes yet), real CI
-  failures, merge conflicts, is a draft, or is approved with settled CI and the next move
-  is yours ("ready to merge", or "move to QA" for pre-QA statuses like `In Code Review`).
-- **Waiting on others** — PRs awaiting review, changes-requested PRs where you've already
-  pushed fixes ("changes pushed · awaiting re-review" — detected by the last commit being
-  newer than the latest changes-requested review), tickets sitting in a QA/review status
-  with no open PR, or QA-held tickets (`Ready To Test`, `In Testing`) whose PR is
-  approved and green — QA holds the merge gate there, so the PR shows
-  "approved · awaiting QA". PR defects always outrank the QA hold.
-- **In development** — assigned tickets with no PR of their own: not started, in progress,
-  or already merged. A subtask being worked on its parent ticket's branch (the standard
-  subtask workflow) shows "on parent PY-XXXX · #NNNN" linking to the parent's PR — the
-  reference is display-only, so the branch's CI/review signals appear once, on the
-  parent's row.
-- **Reviews requested of you** — other people's open PRs where your review is requested,
-  oldest first. A request where you already have a review on record is marked
-  "re-requested" and launches `/verify-review` instead of `/deep-review`.
+One Node server (zero dependencies) does everything:
 
-PRs are linked to tickets automatically by extracting `PY-####` from the branch name and
-PR title. PRs with no ticket key show up as their own rows so nothing goes missing.
-
-Subtasks never roll up: a QA bug or design subtask assigned to you is its own row with
-its own categorization, and its parent keeps the categorization derived from the parent's
-own PRs and status. One piece of work, one row.
-
-Hovering an actionable line also reveals **launch controls**: the derived agent action
-(`implement` → `/implement-ticket`, `address review` → `/address-review`,
-`resolve conflicts` → `/resolve-conflicts`, `fix CI`, `review` → `/deep-review`) with
-`claude` / `codex` buttons that open a new Terminal window with the prompt pre-filled,
-and a `copy` button that copies the prompt to the clipboard instead.
-
-Every launch runs in a **fresh git worktree**, never the main checkout: the terminal
-fetches origin, creates a worktree under `~/.cache/inflight-worktrees/<repo>/` detached
-at the latest `origin/<default branch>` (detected per repo), and starts the agent there —
-so agents always begin from up-to-date master/main and check out PR branches themselves.
-Clean worktrees older than 72h are pruned on the next launch; dirty ones are never
-touched.
-
-Sessions launch with each CLI's own configured default model and reasoning effort. The
-topbar shows a model and effort selector per agent with the config default pre-selected
-(read from `~/.claude/settings.json` and `~/.codex/config.toml`); picking a different
-value passes `--model`/`--effort` (claude) or `-m`/`-c model_reasoning_effort=…` (codex)
-for that session only. Selectable values are whitelisted constants in `server.js`.
-
-The dashboard's skill prompts work in both agents: `npm run setup` symlinks the bundled
-skills into `~/.claude/skills/` and `~/.codex/skills/`, so claude and codex load the same
-definitions.
-
-Prompts are built server-side from validated ticket keys and PR numbers only. Repos
-resolve to `REPOS_DIR/<name>` (default `~/Projects`); agent commands and model whitelists
-are constants in `server.js`. The server binds to 127.0.0.1 only.
-
-Hovering a row reveals a **hide** control for items you don't need to track right now.
-Hidden items move to a collapsed **Hidden** section at the bottom, where they can be
-restored. Hides are held in server memory only — restarting the server clears them.
-
-CI state is computed from individual check runs, not GitHub's rollup: the `QA Code Review`
-human gate is excluded from CI (it's red until a human approves), and a rerun of a flaky
-check counts as passing if any run of that check name passed. The QA gate's *pass* state
-is used positively: an approved PR whose gate is fully green reads "QA passed · ready to
-merge" and needs you even if the Jira status hasn't caught up.
-
-Other signals: actionable review threads on your PRs ("N open threads" — unresolved,
-last comment not yours, never counted on approved PRs) pull the item into Needs you with
-an address-review launch; a PR-less ticket whose PR merged in the last 14 days shows
-"PR #N merged"; and the tab title shows the Needs-you count, e.g. "(3) In-flight". Hides
-and launch memory persist in a local gitignored `.state.json`.
-
-Rows you launched an agent on track the session's worktree live: "claude launched 20m ago
-· 3 unpushed commits" (or "uncommitted changes", "worktree clean", or a red "launch
-failed" if the Terminal never opened). The note self-clears when the worktree is gone; a
-hover "clear" removes the note and deletes the worktree when it's clean — never when it
-holds work. Review-request rows show the linked ticket, diff size (+A/−D), and an amber
-age once a review has waited 3+ days.
+- **Fetches** Jira + GitHub through a TTL cache (one upstream fetch per 2 minutes no
+  matter how many tabs or engine passes; failures serve last-good data marked stale).
+- **Categorizes** every item: *Needs you* (real defects, merge-ready work), *Waiting on
+  others* (reviews out, QA holds), *In development* (no PR of its own; parent-branch
+  subtasks annotated).
+- **Diagnoses** red signals with one-shot, read-only headless `claude` runs: failing CI is
+  classified "likely flake — rerun-safe" vs a real cause (the `QA Code Review` human gate
+  is never blamed); changes-requested reviews get a one-line "wants" digest.
+- **Acts** on a timer via the policy engine — deterministic, unit-tested code, not an LLM
+  reading rules: rerun flake-diagnosed CI, launch `/resolve-conflicts` on conflicts,
+  `/address-review` on reviewer feedback, `/deep-review` drafts on new review requests,
+  `/implement-ticket` on newly assigned tickets (pre-existing backlog never auto-launches).
+  Difficulty is routed deterministically (tier → agent/model/effort table in
+  `lib/config.js`), capped at 2 launches per pass and 6 per provider per 5 hours.
+- **Runs sessions headlessly** as server-owned child processes in fresh worktrees under
+  `~/.cache/inflight-worktrees/` — no Terminal windows. Each session has a live log, exact
+  lifecycle (queued → running → staged/blocked/done/failed), a cancel button, and a
+  "take over" command (`claude --resume <id>`) when you want to steer one interactively.
+- **Stops at the human line**: sessions stage outward-facing actions (submitting reviews,
+  posting replies) as one-click approvals; merging, Jira writes, and un-drafting PRs are
+  never automated. Every action by anyone lands in the journal.
 
 ## Setup
 
-Everything is per-user: the dashboard reads *your* Jira assignments and *your* GitHub PRs
-based on the credentials you provide. Requirements: macOS (launch buttons drive
-Terminal.app), Node 18+, an authenticated `gh` CLI (`gh auth status`), Claude Code
-(`claude`), and optionally Codex (`codex`).
-
-1. Clone this repo and run `npm run setup` — it symlinks the bundled skills
-   (`implement-ticket`, `address-review`, `resolve-conflicts`, `deep-review`,
-   `verify-review`) into `~/.claude/skills/` and `~/.codex/skills/` so the launch prompts
-   work in both agents. Skills you already have are left untouched; symlinks mean
-   `git pull` updates them in place.
-2. Create a Jira API token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
-3. Copy `.env.example` to `.env` and fill in `JIRA_EMAIL` and `JIRA_API_TOKEN`. If your
-   repos aren't cloned under `~/Projects/<name>`, set `REPOS_DIR`.
+1. Node 18+, an authenticated `gh` CLI, macOS (uses `caffeinate`/`osascript`).
+2. Create a Jira API token at <https://id.atlassian.com/manage-profile/security/api-tokens>;
+   copy `.env.example` to `.env` and fill in `JIRA_EMAIL` and `JIRA_API_TOKEN`.
+3. `npm run setup` symlinks the bundled skills (implement-ticket, address-review,
+   resolve-conflicts, deep-review, verify-review) into `~/.claude/skills` and
+   `~/.codex/skills` — sessions invoke these.
+4. Clone the repos you work on under `~/Projects` (or set `REPOS_DIR`).
 
 ## Run
 
 ```bash
-npm run up
+npm run up      # server (caffeinate-wrapped: machine stays awake) + browser
+npm run down    # stop everything, release the wake lock
+npm run status  # server / engine / active-session health
 ```
 
-One command brings up the whole stack: the server wrapped in `caffeinate -ims` (the
-machine stays awake exactly while the dashboard runs), a Terminal window running the
-supervisor loop (`claude --model opus --effort low` + `/loop 10m /dashboard-supervisor`),
-and a browser tab. It's idempotent — already-running pieces are detected and skipped
-(the supervisor via its journal heartbeat). `npm run down` stops the tracked server,
-releases the wake lock, and closes the supervisor window. `npm run status` shows server,
-wake lock, and supervisor-heartbeat health; `bin/inflight logs` tails the server log.
-`bin/inflight up --no-supervisor` starts the dashboard alone, and plain `npm start` still
-runs just the server in the foreground.
+The engine runs inside the server — no separate supervisor process, no browser tab
+required for autonomy. The **autopilot** pill in the UI (or `AUTOPILOT=off`) switches the
+engine to observe-only; manual launches always work. Launch buttons: **auto** routes by
+difficulty tier; **claude**/**codex** force an agent (with optional model/effort overrides
+in the Launch overrides panel); **copy** copies the prompt.
 
-The dashboard refreshes every 3 minutes and on tab focus. Tokens never leave the server
-process — the browser only talks to localhost, and the server binds to 127.0.0.1.
+Headless sessions run with permission bypasses (see `agents.*.headlessArgs` in
+`lib/config.js`) inside isolated worktrees — that is the deliberate autonomy trade. Set
+`AUTONOMOUS=off` to build fully-gated interactive prompts instead.
 
-```bash
-npm test
-```
+## Layout
 
-## Agentic supervision
-
-The dashboard is also an API for agents (`/api/data`, `/api/launch`, `/api/journal`), and
-three layers build on that:
-
-- **Session status**: sessions launched from the dashboard report progress by writing
-  `.agent-status.json` at their worktree root (the bundled skills know to do this). Rows
-  show "awaiting your approval: …", "blocked: …", or "done: …", the topbar counts
-  sessions that await you, and the file never counts as worktree dirt.
-- **Auto-diagnosis**: red signals get one read-only headless `claude -p` run each (gh
-  inspection commands only, cached per commit/review state, `DIAGNOSE=off` disables):
-  failing CI is classified "likely flake — rerun-safe" vs "cause: …", and
-  changes-requested reviews get a one-line "wants: …" digest.
-- **The supervisor**: the bundled `dashboard-supervisor` skill runs one supervision pass —
-  fetch the data, act on safe signals (launch resolve-conflicts on new conflicts, rerun
-  flake-diagnosed CI, launch address-review/fix-CI, pre-launch review drafts), journal
-  everything, and notify on sessions awaiting approval. Run it on a cadence with
-  `/loop 10m /dashboard-supervisor`. It never ships, merges, posts, or writes to Jira —
-  launched sessions still stop at their own approval gates.
-
-Every agent action (yours, the supervisor's, or a diagnosis) lands in the collapsed
-**Activity** card, backed by a gitignored `.journal.jsonl`. Launching an item that already
-has a live session returns 409 — clear the session note to relaunch.
-
-### Autonomous mode and the Approvals card
-
-Launch prompts carry `--autonomous` (disable with `AUTONOMOUS=off`): skills run to their
-safe terminus with no interactive stops — implement-ticket goes all the way to a **posted
-draft PR** (product judgment calls documented in the PR body under "Autonomous
-decisions"), address-review fixes and pushes to your own branch, fix-CI pushes its fix.
-The gates that remain are exactly the **outward-facing writes** — submitting a review on
-a colleague's PR, posting reply comments — and those are staged, not skipped: the session
-writes a `.approval.sh` with the exact command plus an `approval` entry in its status
-file, and the dashboard's **Needs approval** card shows each one with one-click
-Approve (runs the staged script in that worktree) / Dismiss. Merging, Jira writes, and
-non-draft PRs remain off-limits in every mode, and the supervisor is forbidden from
-clicking approvals — they're yours.
+- `server.js` — HTTP API + engine timer (thin wiring)
+- `lib/config.js` — every tunable: queries, routing table, budgets, agent invocations
+- `lib/model.js` — pure domain logic (categorization, actions, tiers) — unit-tested
+- `lib/policy.js` — the decision table as code: pure `decide()` + effects executor
+- `lib/sessions.js` — headless session runner, worktrees, approvals, log rendering
+- `lib/integrations.js` — Jira/GitHub fetchers + TTL cache
+- `lib/diagnosis.js` — cached one-shot diagnosis runs
+- `lib/state.js` — one persistent state file + append-only journal
+- `skills/` — the agent skills sessions invoke (single source shared with teammates)
 
 ## Scope rules
 
-This tool stays small on purpose. Baked-in constraints:
-
-- Read-only against Jira and GitHub. The only local state is hide/restore, kept in
-  server memory.
-- No config UI, no filters, no tabs, no search. The two queries and the noise lists are
-  constants at the top of `server.js`.
-- No history, charts, or analytics — current state only.
+- Read-only against Jira; GitHub writes are limited to what sessions do on your own
+  branches, flake reruns, and the approvals you click.
+- No config UI — constants live in `lib/config.js`.
+- No history, charts, or analytics; current state only.
 - A feature only gets added if it deletes a daily manual lookup.
