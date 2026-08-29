@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { ROOT, CONFIG } from "./lib/config.js";
-import { buildItems } from "./lib/model.js";
+import { buildItems, tierFor, routeFor } from "./lib/model.js";
 import { getUpstream } from "./lib/integrations.js";
 import { scheduleDiagnoses, attachDiagnoses } from "./lib/diagnosis.js";
 import {
@@ -29,7 +29,6 @@ import {
   worktreeStatusOf,
 } from "./lib/sessions.js";
 import { runPolicyPass, setAutopilot, lastPass } from "./lib/policy.js";
-import { tierFor, routeFor } from "./lib/model.js";
 
 loadState();
 reconcileSessions();
@@ -57,6 +56,7 @@ const publicSession = (session) => ({
   prNumber: session.prNumber,
   kind: session.kind,
   label: session.label,
+  prompt: session.prompt,
   agent: session.agent,
   model: session.model,
   effort: session.effort,
