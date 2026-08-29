@@ -103,6 +103,7 @@ const basePr = {
   ci: "success",
   ageDays: 2,
   openThreads: 0,
+  botThreads: 0,
   qaGate: null,
   lastCommitAt: "2026-08-20T10:00:00Z",
   changesRequestedAt: null,
@@ -129,6 +130,24 @@ test("categorizePr: defects need you; approved+settled promotes; QA gate beats h
   );
   assert.equal(categorizePr({ ...basePr, reviewDecision: "APPROVED", ci: "pending" }).bucket, "waiting");
   assert.ok(categorizePr(basePr).reasons.includes("awaiting review · 2d"));
+});
+
+test("codex bot threads need you, survive approval, and trigger address-review", () => {
+  const withBot = categorizePr({ ...basePr, botThreads: 2 });
+  assert.equal(withBot.bucket, "needs_you");
+  assert.ok(withBot.reasons.includes("2 codex threads"));
+  const approvedWithBot = categorizePr({ ...basePr, reviewDecision: "APPROVED", botThreads: 1 });
+  assert.equal(approvedWithBot.bucket, "needs_you");
+  assert.ok(approvedWithBot.reasons.includes("1 codex thread"));
+  assert.equal(launchForPr({ ...basePr, botThreads: 1 }).kind, "address-review");
+  const addressedHumanButBot = launchForPr({
+    ...basePr,
+    reviewDecision: "CHANGES_REQUESTED",
+    changesRequestedAt: "2026-08-28T17:00:00Z",
+    lastCommitAt: "2026-08-28T18:00:00Z",
+    botThreads: 1,
+  });
+  assert.equal(addressedHumanButBot.kind, "address-review", "bot threads outrank changes-pushed");
 });
 
 test("changes pushed after review: ball in reviewer's court, threads deferred", () => {
@@ -529,9 +548,10 @@ test("mapReviewPr: id, ticket link, thread policy, qa gate", () => {
     deletions: 2,
     reviewThreads: {
       nodes: [
-        { isResolved: false, comments: { nodes: [{ author: { login: "marcus" } }] } },
-        { isResolved: false, comments: { nodes: [{ author: { login: "greg-py" } }] } },
-        { isResolved: true, comments: { nodes: [{ author: { login: "greg-py" } }] } },
+        { isResolved: false, comments: { nodes: [{ author: { login: "marcus", __typename: "User" } }] } },
+        { isResolved: false, comments: { nodes: [{ author: { login: "greg-py", __typename: "User" } }] } },
+        { isResolved: true, comments: { nodes: [{ author: { login: "greg-py", __typename: "User" } }] } },
+        { isResolved: false, comments: { nodes: [{ author: { login: "chatgpt-codex-connector", __typename: "Bot" } }] } },
       ],
     },
     commits: { nodes: [{ commit: { committedDate: "2026-08-24T00:00:00Z", statusCheckRollup: { contexts: { nodes: [{ name: "QA Code Review", conclusion: "FAILURE" }] } } } }] },
@@ -539,7 +559,8 @@ test("mapReviewPr: id, ticket link, thread policy, qa gate", () => {
   const pr = mapReviewPr(node, Date.parse("2026-08-26T00:00:00Z"));
   assert.equal(pr.id, "PerformYard/PerformYard#7400");
   assert.equal(pr.ticketKey, "PY-14000");
-  assert.equal(pr.openThreads, 1, "only reviewer-last unresolved threads count");
+  assert.equal(pr.openThreads, 1, "only human reviewer-last unresolved threads count");
+  assert.equal(pr.botThreads, 1, "bot threads counted separately");
   assert.equal(pr.qaGate, "blocked");
   assert.equal(pr.ageDays, 6);
 });
