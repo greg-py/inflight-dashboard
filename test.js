@@ -193,7 +193,7 @@ test("launchForPr maps state to kind/prompt/fingerprint in priority order", () =
   const review = launchForPr({ ...basePr, reviewDecision: "CHANGES_REQUESTED" });
   assert.equal(review.kind, "address-review");
   assert.equal(review.prompt, "/address-review #7364 --autonomous");
-  assert.equal(review.fingerprint, "review:PerformYard/PerformYard#7364:2026-08-20T10:00:00Z");
+  assert.equal(review.fingerprint, "review:PerformYard/PerformYard#7364:none:2026-08-20T10:00:00Z:0h0b");
   assert.equal(
     launchForPr({ ...basePr, reviewDecision: "CHANGES_REQUESTED", mergeable: "CONFLICTING" }).kind,
     "address-review",
