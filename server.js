@@ -19,6 +19,7 @@ import {
 } from "./lib/state.js";
 import {
   startSession,
+  answerSession,
   cancelSession,
   cleanSessionWorktree,
   activeSessionForItem,
@@ -241,6 +242,14 @@ const startServer = () => {
         }
         const result = await approveSession(session);
         json(res, result.ok ? 200 : 500, result.ok ? { ok: true, output: result.output } : { error: result.error });
+      } else if (req.method === "POST" && req.url === "/api/session-answer") {
+        const { id, text } = JSON.parse((await readBody(req)) || "{}");
+        try {
+          const session = answerSession(id, text);
+          json(res, 200, { ok: true, sessionId: session.id });
+        } catch (err) {
+          json(res, err.code === "NO_SESSION" ? 404 : 400, { error: err.message });
+        }
       } else if (req.method === "POST" && req.url === "/api/session-cancel") {
         const { id } = JSON.parse((await readBody(req)) || "{}");
         json(res, 200, { ok: cancelSession(id) });

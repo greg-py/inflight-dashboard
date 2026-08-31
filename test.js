@@ -29,6 +29,8 @@ import {
   worktreeStatusOf,
   sessionStatusOf,
   buildAgentArgs,
+  buildContinueArgs,
+  takeoverCommand,
   renderLogLine,
 } from "./lib/sessions.js";
 import { decide, MAX_LAUNCHES_PER_PASS } from "./lib/policy.js";
@@ -467,6 +469,45 @@ test("buildAgentArgs: claude flags vs codex config overrides, prompt last", () =
   assert.equal(codexArgs.at(-1), "hi");
   assert.ok(codexArgs.join(" ").includes('model_reasoning_effort="medium"'));
   assert.ok(!codexArgs.join(" ").includes("-m "));
+});
+
+test("buildContinueArgs: resumes by id when known, else a fresh run in the worktree", () => {
+  const claude = buildContinueArgs(
+    { agent: "claude", resumeId: "abc-123", model: "opus", effort: "xhigh" },
+    "keep going",
+  );
+  assert.ok(claude.join(" ").includes("--resume abc-123"));
+  assert.equal(claude.at(-1), "keep going");
+  const codex = buildContinueArgs({ agent: "codex", resumeId: "uuid-1", effort: "medium" }, "keep going");
+  assert.deepEqual(codex.slice(0, 3), ["exec", "resume", "uuid-1"]);
+  assert.ok(codex.join(" ").includes('model_reasoning_effort="medium"'));
+  assert.equal(codex.at(-1), "keep going");
+  const noId = buildContinueArgs({ agent: "codex", resumeId: null, effort: "low" }, "keep going");
+  assert.equal(noId[0], "exec");
+  assert.ok(!noId.includes("resume"));
+});
+
+test("takeoverCommand: always offers a way in", () => {
+  assert.equal(
+    takeoverCommand({ agent: "claude", resumeId: "abc", worktree: "/wt" }),
+    "cd /wt && claude --resume abc",
+  );
+  assert.equal(
+    takeoverCommand({ agent: "codex", resumeId: "uuid", worktree: "/wt" }),
+    "cd /wt && codex resume uuid",
+  );
+  assert.equal(takeoverCommand({ agent: "codex", resumeId: null, worktree: "/wt" }), "cd /wt && codex");
+  assert.equal(
+    takeoverCommand({ agent: "claude", resumeId: null, worktree: null, repoPath: "/repo" }),
+    "cd /repo && claude",
+  );
+  assert.equal(takeoverCommand({ agent: "claude", worktree: null, repoPath: null }), null);
+});
+
+test("renderLogLine: codex session id captured for resume", () => {
+  const session = {};
+  renderLogLine("session id: 01a057d5-0ae0-75c1-8e2f-a0b284212e9a", session);
+  assert.equal(session.resumeId, "01a057d5-0ae0-75c1-8e2f-a0b284212e9a");
 });
 
 test("renderLogLine: init captures resumeId; assistant/tool/result render; plain passes through", () => {

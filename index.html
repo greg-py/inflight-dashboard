@@ -103,6 +103,12 @@
   .btn.quiet { border-color: transparent; color: var(--text-3); }
   .btn-row { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
 
+  .answer-box { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; }
+  .answer-box textarea {
+    flex: 1; min-width: 0; font: 11.5px/1.5 inherit; padding: 5px 8px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical;
+  }
+  .answer-box textarea:focus { outline: none; border-color: var(--blue); }
   .log { margin: 6px 0 2px; padding: 8px 10px; border-radius: 8px; background: var(--bg); font: 11px/1.5 ui-monospace, "SF Mono", monospace; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; color: var(--text-2); }
 
   details.folded > summary { padding: 11px 16px; font-size: 12px; font-weight: 650; color: var(--text-3); cursor: pointer; list-style-position: inside; letter-spacing: 0.03em; }
@@ -285,10 +291,18 @@
       s.takeover ? `<button class="btn" data-copytext="${esc(s.takeover)}">take over</button>` : "",
       !["queued", "running"].includes(s.state) && s.hasWorktree ? `<button class="btn" data-clear="${esc(s.id)}">clear</button>` : "",
     ].filter(Boolean).join("");
+    const answerBox =
+      s.state === "blocked"
+        ? `<div class="answer-box">
+            <textarea id="answer-${esc(s.id)}" rows="2" placeholder="Answer the question to continue this session…"></textarea>
+            <button class="btn primary" data-answer="${esc(s.id)}">answer &amp; continue</button>
+          </div>`
+        : "";
     return `<div class="row"><span class="key">${esc(s.itemId)}</span>
       <div class="body"><div class="summary">${meta}</div>
-      <div class="line" title="${esc(s.prompt ?? "")}">${esc((s.detail ?? "").slice(0, 140))}</div>
+      <div class="line" title="${esc(s.prompt ?? "")}">${esc((s.detail ?? "").slice(0, 300))}</div>
       <div class="btn-row">${buttons}</div>
+      ${answerBox}
       ${openLogs.has(s.id) ? `<div class="log" id="log-${esc(s.id)}">loading…</div>` : ""}</div></div>`;
   };
 
@@ -496,6 +510,17 @@
           }
           render(lastData);
         }
+        return;
+      }
+      if (t.dataset.answer) {
+        const id = t.dataset.answer;
+        const box = document.getElementById(`answer-${id}`);
+        const text = (box?.value ?? "").trim();
+        if (!text) { box?.focus(); return; }
+        t.disabled = true;
+        t.textContent = "continuing…";
+        await post("/api/session-answer", { id, text });
+        await refresh();
         return;
       }
       if (t.dataset.cancel) { await post("/api/session-cancel", { id: t.dataset.cancel }); await refresh(); return; }
