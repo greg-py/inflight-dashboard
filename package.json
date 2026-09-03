@@ -9,10 +9,6 @@
   },
   "scripts": {
     "start": "node server.js",
-    "up": "bin/inflight up",
-    "down": "bin/inflight down",
-    "status": "bin/inflight status",
-    "setup": "node setup.js",
-    "test": "node --test test.js"
+    "test": "node --test"
   }
 }

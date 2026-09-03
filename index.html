@@ -9,17 +9,17 @@
   :root {
     --bg: #f6f6f4; --surface: #ffffff; --border: #e4e4e0; --text: #1b1b19;
     --text-2: #66665f; --text-3: #9b9b93;
-    --red: #a32d2d; --red-bg: #fceaea; --amber: #8a5310; --amber-bg: #faf0dc;
-    --green: #3b6d11; --green-bg: #eef5e4; --blue: #185fa5; --blue-bg: #e8f1fa;
-    --purple: #534ab7; --chip-bg: #f0efe9; --chip: #45453f;
+    --red: #a32d2d; --amber: #8a5310; --amber-bg: #faf0dc;
+    --green: #3b6d11; --blue: #185fa5; --purple: #534ab7;
+    --chip-bg: #f0efe9; --chip: #45453f; --blue-bg: #e8f1fa;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #191917; --surface: #232321; --border: #383834; --text: #ebebe8;
       --text-2: #a6a69f; --text-3: #73736b;
-      --red: #ef9a9a; --red-bg: #40201f; --amber: #f3c069; --amber-bg: #3a2c13;
-      --green: #a3cc68; --green-bg: #26331a; --blue: #8abbec; --blue-bg: #17324b;
-      --purple: #b3adf0; --chip-bg: #34342e; --chip: #cfcfc6;
+      --red: #ef9a9a; --amber: #f3c069; --amber-bg: #3a2c13;
+      --green: #a3cc68; --blue: #8abbec; --purple: #b3adf0;
+      --chip-bg: #34342e; --chip: #cfcfc6; --blue-bg: #17324b;
     }
   }
   * { box-sizing: border-box; }
@@ -32,19 +32,9 @@
   a:hover { text-decoration: underline; }
 
   .topbar { display: flex; align-items: center; gap: 12px; padding: 2px 4px 14px; }
-  .topbar h1 { font-size: 16px; font-weight: 650; margin: 0 4px 0 0; letter-spacing: 0.01em; }
+  .topbar h1 { font-size: 16px; font-weight: 650; margin: 0; letter-spacing: 0.01em; }
   .spacer { flex: 1; }
   #refreshed { font-size: 12px; color: var(--text-3); }
-  .pill {
-    font-size: 11.5px; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--border);
-    background: var(--surface); color: var(--text-2); cursor: default;
-  }
-  button.pill { cursor: pointer; }
-  .pill.on { background: var(--green-bg); color: var(--green); border-color: transparent; }
-  .pill.off { background: var(--chip-bg); color: var(--chip); }
-  .pill.warn { background: var(--amber-bg); color: var(--amber); border-color: transparent; }
-  .pill[hidden] { display: none; }
-
   .banner { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; background: var(--amber-bg); color: var(--amber); font-size: 12.5px; }
   #error { margin: 0 0 12px; color: var(--red); font-size: 12.5px; }
 
@@ -58,8 +48,8 @@
     padding: 11px 16px 7px; font-size: 12px; font-weight: 650; letter-spacing: 0.03em;
   }
   .card-head .count { color: var(--text-3); font-weight: 500; }
-  .h-needs { color: var(--red); } .h-wait { color: var(--amber); } .h-dev { color: var(--text-3); }
-  .h-appr { color: var(--amber); } .h-sess { color: var(--blue); } .h-rev { color: var(--purple); }
+  .h-needs { color: var(--red); } .h-wait { color: var(--amber); }
+  .h-dev { color: var(--text-3); } .h-rev { color: var(--purple); }
 
   .row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 16px; border-top: 1px solid var(--border); }
   .key { font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; min-width: 74px; padding-top: 1px; color: var(--text-2); }
@@ -77,59 +67,19 @@
   .act { visibility: hidden; border: none; background: none; cursor: pointer; font-size: 11px; color: var(--text-3); padding: 2px 4px; }
   .act:hover { color: var(--text); text-decoration: underline; }
   .row:hover .act { visibility: visible; }
-  .launch { visibility: hidden; white-space: nowrap; font-size: 11.5px; color: var(--text-3); }
-  .row:hover .launch { visibility: visible; }
-  .launch button { border: none; background: none; cursor: pointer; font: inherit; color: var(--blue); padding: 0 3px; }
-  .launch button:hover { text-decoration: underline; }
-  .launch button:disabled { color: var(--text-3); cursor: default; }
-
-  .sess-note { font-size: 11.5px; color: var(--text-3); }
-  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; background: var(--text-3); }
-  .dot.running { background: var(--blue); animation: pulse 1.6s ease-in-out infinite; }
-  .dot.queued { background: var(--text-3); }
-  .dot.staged { background: var(--amber); }
-  .dot.blocked { background: var(--red); }
-  .dot.done { background: var(--green); }
-  .dot.failed, .dot.canceled { background: var(--red); }
-  @keyframes pulse { 50% { opacity: 0.35; } }
-
-  .btn {
-    font-size: 11.5px; padding: 3px 12px; border-radius: 8px; cursor: pointer;
-    border: 1px solid var(--border); background: var(--surface); color: var(--text);
-  }
-  .btn:hover { border-color: var(--text-3); }
-  .btn:disabled { opacity: 0.5; cursor: default; }
-  .btn.primary { background: var(--amber-bg); color: var(--amber); border-color: transparent; }
-  .btn.quiet { border-color: transparent; color: var(--text-3); }
-  .btn-row { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
-
-  .answer-box { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; }
-  .answer-box textarea {
-    flex: 1; min-width: 0; font: 11.5px/1.5 inherit; padding: 5px 8px; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical;
-  }
-  .answer-box textarea:focus { outline: none; border-color: var(--blue); }
-  .log { margin: 6px 0 2px; padding: 8px 10px; border-radius: 8px; background: var(--bg); font: 11px/1.5 ui-monospace, "SF Mono", monospace; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; color: var(--text-2); }
 
   details.folded > summary { padding: 11px 16px; font-size: 12px; font-weight: 650; color: var(--text-3); cursor: pointer; list-style-position: inside; letter-spacing: 0.03em; }
-  #journal-list, #hidden-list { max-height: 340px; overflow-y: auto; }
-  #card-sessions, #card-approvals, #card-reviews { max-height: 480px; overflow-y: auto; }
-  #card-sessions .card-head, #card-approvals .card-head, #card-reviews .card-head { position: sticky; top: 0; background: var(--surface); z-index: 1; }
-  .journal-line { padding: 5px 16px; font-size: 11.5px; color: var(--text-2); border-top: 1px solid var(--border); }
-  .journal-line .when { color: var(--text-3); font-family: ui-monospace, "SF Mono", monospace; font-size: 10.5px; }
-  .journal-line .actor { font-weight: 600; }
+  #hidden-list { max-height: 340px; overflow-y: auto; }
+  #card-reviews { max-height: 480px; overflow-y: auto; }
+  #card-reviews .card-head { position: sticky; top: 0; background: var(--surface); z-index: 1; }
   #hidden-list .row { opacity: 0.55; }
   #hidden-list .row:hover { opacity: 1; }
-  .overrides { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 16px 12px; font-size: 11.5px; color: var(--text-2); align-items: center; }
-  .overrides select { font-size: 11.5px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; }
 </style>
 </head>
 <body>
 <main>
   <div class="topbar">
     <h1>In-flight</h1>
-    <button class="pill off" id="autopilot">autopilot …</button>
-    <span class="pill warn" id="awaiting-chip" hidden></span>
     <span class="spacer"></span>
     <span id="refreshed">loading…</span>
   </div>
@@ -142,19 +92,9 @@
       <div class="card" id="card-no_pr"></div>
     </div>
     <div class="col">
-      <div class="card" id="card-approvals" hidden></div>
-      <div class="card" id="card-sessions"></div>
       <div class="card" id="card-reviews"></div>
-      <div class="card" hidden id="card-journal">
-        <details class="folded" id="journal-details"><summary id="journal-summary">Activity</summary><div id="journal-list"></div></details>
-      </div>
       <div class="card" hidden id="card-hidden">
         <details class="folded" id="hidden-details"><summary id="hidden-summary">Hidden</summary><div id="hidden-list"></div></details>
-      </div>
-      <div class="card">
-        <details class="folded"><summary>Launch overrides</summary>
-          <div class="overrides" id="overrides"></div>
-        </details>
       </div>
     </div>
   </div>
@@ -172,8 +112,12 @@
 
   let lastData = null;
   let lastFetched = null;
-  const openLogs = new Set();
-  const selection = { claudeModel: "", claudeEffort: "", codexEffort: "" };
+  const hidden = new Set();
+  try {
+    for (const id of JSON.parse(localStorage.getItem("inflight-hidden") ?? "[]")) {
+      if (typeof id === "string") hidden.add(id);
+    }
+  } catch {}
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const ago = (ts) => {
@@ -181,18 +125,7 @@
     const m = Math.max(0, Math.round((Date.now() - ts) / 60_000));
     return m < 1 ? "now" : m < 60 ? `${m}m` : `${Math.round(m / 60)}h`;
   };
-  const elapsed = (s) => {
-    const end = s.endedAt ?? Date.now();
-    const mins = Math.max(1, Math.round((end - s.startedAt) / 60_000));
-    return mins < 60 ? `${mins}m` : `${(mins / 60).toFixed(1)}h`;
-  };
 
-  const post = async (url, body) => {
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-    return data;
-  };
   const showError = (msg) => {
     const el = document.getElementById("error");
     el.textContent = msg;
@@ -202,37 +135,16 @@
 
   const reasonSpan = (reason) => {
     const age = reason.match(/^awaiting review · (\d+)d$/);
-    const cls = BAD.includes(reason) || /open thread/.test(reason) ? "r-bad"
-      : /codex thread/.test(reason) || (age && Number(age[1]) >= STALE_REVIEW_DAYS) ? "r-warn"
+    const cls = BAD.includes(reason) || /open thread/.test(reason) || /^CI stuck/.test(reason) ? "r-bad"
+      : /bot thread/.test(reason) || (age && Number(age[1]) >= STALE_REVIEW_DAYS) ? "r-warn"
       : GOOD.includes(reason) ? "r-good" : "";
     return `<span class="${cls}">${esc(reason)}</span>`;
   };
 
-  const diagnosisSpan = (pr) => {
-    if (!pr.diagnosis) return "";
-    const { kind, detail } = pr.diagnosis;
-    const label = kind === "flake" ? `<span class="r-warn">likely flake</span>`
-      : kind === "real" ? `<span class="r-bad">cause</span>` : "wants";
-    return ` · ${label}: <span title="${esc(detail)}">${esc(detail.slice(0, 80))}</span>`;
-  };
-
-  const launchControls = (launch, id, prNumber) => {
-    if (!launch) return "";
-    const attrs = `data-id="${esc(id)}"${prNumber != null ? ` data-pr="${prNumber}"` : ""}`;
-    return `<span class="launch" title="${esc(launch.prompt)}"> · ${esc(launch.label)} →
-      <button class="lb" data-agent="" ${attrs}>auto</button><button class="lb" data-agent="claude" ${attrs}>claude</button><button class="lb" data-agent="codex" ${attrs}>codex</button><button class="lb" data-copy="${esc(launch.prompt)}">copy</button></span>`;
-  };
-
-  const sessionNote = (entry) => {
-    const s = entry.session;
-    if (!s) return "";
-    return ` <span class="sess-note">· <span class="dot ${esc(s.state)}"></span>${esc(s.agent)} ${esc(s.state)}</span>`;
-  };
-
-  const prLine = (pr, itemId) =>
+  const prLine = (pr) =>
     `<div class="line"><a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.repo)}#${pr.number}</a> · ${pr.reasons
       .map(reasonSpan)
-      .join(" · ")}${diagnosisSpan(pr)}${launchControls(pr.launch, itemId, pr.number)}</div>`;
+      .join(" · ")}</div>`;
 
   const prRefs = (prs) => (prs ?? []).map((pr) => `<a href="${esc(pr.url)}" target="_blank" rel="noopener">#${pr.number}</a>`).join(", ");
 
@@ -242,11 +154,11 @@
     const parentLinks = prRefs(item.parentPrs);
     const mergedLinks = prRefs(item.mergedPrs);
     const noPr = item.key && item.prs.length === 0
-      ? `<div class="line">${parentLinks ? `on parent ${esc(item.parentKey)} · ${parentLinks}` : mergedLinks ? `PR ${mergedLinks} merged` : "no open PR"}${launchControls(item.launch, item.id)}</div>`
+      ? `<div class="line">${parentLinks ? `on parent ${esc(item.parentKey)} · ${parentLinks}` : mergedLinks ? `PR ${mergedLinks} merged` : "no open PR"}</div>`
       : "";
     return `<div class="row"><span class="key">${key}</span>
-      <div class="body"><div class="summary" title="${esc(item.summary)}">${esc(item.summary)}${subtask}${sessionNote(item)}</div>
-      ${item.prs.map((pr) => prLine(pr, item.id)).join("")}${noPr}</div>
+      <div class="body"><div class="summary" title="${esc(item.summary)}">${esc(item.summary)}${subtask}</div>
+      ${item.prs.map(prLine).join("")}${noPr}</div>
       <span class="chip ${esc(item.statusCategory)}">${esc(item.status)}</span>
       <button class="act" data-action="${action}" data-id="${esc(item.id)}">${action}</button></div>`;
   };
@@ -263,8 +175,8 @@
       ciSpan,
     ].filter(Boolean);
     return `<div class="row"><span class="key">${esc(pr.author)}</span>
-      <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}${sessionNote(pr)}</div>
-      <div class="line">${details.join(" · ")}${launchControls(pr.launch, pr.id)}</div></div>
+      <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
+      <div class="line">${details.join(" · ")}</div></div>
       <span class="chip">${esc(pr.repo.split("/")[1] ?? pr.repo)}</span>
       <button class="act" data-action="${action}" data-id="${esc(pr.id)}">${action}</button></div>`;
   };
@@ -272,79 +184,6 @@
   const card = (el, cls, label, rows, emptyText) => {
     el.innerHTML = `<div class="card-head ${cls}">${label} <span class="count">· ${rows.length}</span></div>` +
       (rows.length ? rows.join("") : `<div class="empty">${emptyText}</div>`);
-  };
-
-  const sessionRow = (s) => {
-    const routing = [s.agent, s.model, s.effort].filter(Boolean).join("/");
-    const meta = [
-      `<span class="dot ${esc(s.state)}"></span><strong>${esc(s.state)}</strong>`,
-      esc(s.kind),
-      routing ? esc(routing) : "",
-      s.tier ? `tier ${esc(s.tier)}` : "",
-      elapsed(s),
-      s.costUsd != null ? `$${s.costUsd.toFixed(2)}` : "",
-      s.actor === "engine" ? "· engine" : "",
-    ].filter(Boolean).join(" · ");
-    const buttons = [
-      `<button class="btn quiet" data-log="${esc(s.id)}">${openLogs.has(s.id) ? "hide log" : "log"}</button>`,
-      ["queued", "running"].includes(s.state) ? `<button class="btn" data-cancel="${esc(s.id)}">cancel</button>` : "",
-      s.takeover ? `<button class="btn" data-copytext="${esc(s.takeover)}">take over</button>` : "",
-      !["queued", "running"].includes(s.state) && s.hasWorktree ? `<button class="btn" data-clear="${esc(s.id)}">clear</button>` : "",
-    ].filter(Boolean).join("");
-    const answerBox =
-      s.state === "blocked"
-        ? `<div class="answer-box">
-            <textarea id="answer-${esc(s.id)}" rows="2" placeholder="Answer the question to continue this session…"></textarea>
-            <button class="btn primary" data-answer="${esc(s.id)}">answer &amp; continue</button>
-          </div>`
-        : "";
-    return `<div class="row"><span class="key">${esc(s.itemId)}</span>
-      <div class="body"><div class="summary">${meta}</div>
-      <div class="line" title="${esc(s.prompt ?? "")}">${esc((s.detail ?? "").slice(0, 300))}</div>
-      <div class="btn-row">${buttons}</div>
-      ${answerBox}
-      ${openLogs.has(s.id) ? `<div class="log" id="log-${esc(s.id)}">loading…</div>` : ""}</div></div>`;
-  };
-
-  const approvalRow = (entry) => {
-    const s = entry.session;
-    const name = entry.key ?? entry.id;
-    const link = entry.url ?? entry.prs?.[0]?.url ?? null;
-    return `<div class="row"><span class="key">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(name)}</a>` : esc(name)}</span>
-      <div class="body"><div class="summary" title="${esc(entry.summary ?? entry.title ?? "")}">${esc(entry.summary ?? entry.title ?? "")}</div>
-      <div class="line">${esc(s.approval?.detail || s.detail || "")}</div>
-      <div class="btn-row"><button class="btn primary" data-approve="${esc(entry.id)}">approve: ${esc(s.approval?.label ?? "run")}</button>
-      <button class="btn" data-dismiss="${esc(entry.id)}">dismiss</button></div></div></div>`;
-  };
-
-  const transitionRow = (t) => {
-    const item = lastData?.items.find((i) => i.id === t.itemId);
-    return `<div class="row"><span class="key"><a href="${esc(
-      item?.url ?? `#`,
-    )}" target="_blank" rel="noopener">${esc(t.itemId)}</a></span>
-      <div class="body"><div class="summary">${esc(t.status)} → <strong>${esc(t.target)}</strong> <span class="sub">· ${esc(t.why)}</span></div>
-      <div class="btn-row"><button class="btn primary" data-transition="approve" data-id="${esc(t.itemId)}">move to ${esc(t.target)}</button>
-      <button class="btn" data-transition="dismiss" data-id="${esc(t.itemId)}">dismiss</button></div></div></div>`;
-  };
-
-  const renderOverrides = (options) => {
-    const el = document.getElementById("overrides");
-    if (el.dataset.built) return;
-    el.dataset.built = "1";
-    const select = (id, label, values, defaultLabel) =>
-      `<label>${label} <select id="${id}"><option value="">${esc(defaultLabel ?? "default")}</option>${values
-        .map((v) => `<option value="${esc(v)}">${esc(v)}</option>`)
-        .join("")}</select></label>`;
-    el.innerHTML =
-      select("ov-claude-model", "claude model", options.claude.models, `default (${options.claude.defaultModel ?? "?"})`) +
-      select("ov-claude-effort", "effort", options.claude.efforts, `default (${options.claude.defaultEffort ?? "?"})`) +
-      select("ov-codex-effort", "codex effort", options.codex.efforts, `default (${options.codex.defaultEffort ?? "?"})`) +
-      `<span class="sub">applies to explicit claude/codex launches; "auto" always routes by tier</span>`;
-    el.addEventListener("change", () => {
-      selection.claudeModel = document.getElementById("ov-claude-model").value;
-      selection.claudeEffort = document.getElementById("ov-claude-effort").value;
-      selection.codexEffort = document.getElementById("ov-codex-effort").value;
-    });
   };
 
   const render = (data) => {
@@ -357,7 +196,7 @@
     }
     document.getElementById("banners").innerHTML = banners.join("");
 
-    const visible = data.items.filter((i) => !i.hidden);
+    const visible = data.items.filter((item) => !hidden.has(item.id));
     for (const section of SECTIONS) {
       const rows = visible.filter((i) => i.section === section.id).map((i) => workRow(i, "hide"));
       card(document.getElementById(`card-${section.id}`), section.cls, section.label, rows, "nothing here");
@@ -366,67 +205,16 @@
     const needsYou = visible.filter((i) => i.section === "needs_you").length;
     document.title = needsYou > 0 ? `(${needsYou}) In-flight` : "In-flight";
 
-    const everyEntry = [...data.items, ...data.reviewRequests].filter((e) => !e.hidden);
-    const staged = everyEntry.filter((e) => e.session?.state === "staged" && e.session.approval);
-    const blocked = everyEntry.filter((e) => e.session?.state === "blocked");
-    const transitions = data.transitions ?? [];
-    const attention = staged.length + blocked.length + transitions.length;
-    const chip = document.getElementById("awaiting-chip");
-    chip.hidden = attention === 0;
-    chip.textContent = `${attention} need${attention === 1 ? "s" : ""} you`;
-    const approvalsCard = document.getElementById("card-approvals");
-    const approvalCount = staged.length + transitions.length;
-    approvalsCard.hidden = approvalCount === 0;
-    if (approvalCount) {
-      approvalsCard.innerHTML =
-        `<div class="card-head h-appr">Needs approval <span class="count">· ${approvalCount}</span></div>` +
-        staged.map(approvalRow).join("") +
-        transitions.map(transitionRow).join("");
-    }
-
-    const active = data.sessions.filter((s) => ["queued", "running", "staged", "blocked"].includes(s.state));
-    const recent = data.sessions.filter((s) => !["queued", "running", "staged", "blocked"].includes(s.state)).slice(0, 6);
-    card(document.getElementById("card-sessions"), "h-sess", "Sessions", [...active, ...recent].map(sessionRow), "no sessions yet");
-    for (const id of openLogs) refreshLog(id);
-
     card(document.getElementById("card-reviews"), "h-rev", "Reviews requested of you",
-      data.reviewRequests.filter((r) => !r.hidden).map((r) => reviewRow(r, "hide")), "nothing waiting on your review");
-
-    const journal = data.journal ?? [];
-    document.getElementById("card-journal").hidden = journal.length === 0;
-    document.getElementById("journal-summary").textContent = `Activity · ${journal.length}`;
-    document.getElementById("journal-list").innerHTML = journal
-      .map((e) => `<div class="journal-line"><span class="when">${ago(e.at)}</span> · <span class="actor">${esc(e.actor)}</span> ${esc(e.action)}${e.id ? ` · ${esc(e.id)}` : ""}${e.detail ? ` — ${esc(e.detail)}` : ""}</div>`)
-      .join("");
+      data.reviewRequests.filter((pr) => !hidden.has(pr.id)).map((pr) => reviewRow(pr, "hide")), "nothing waiting on your review");
 
     const hiddenRows = [
-      ...data.items.filter((i) => i.hidden).map((i) => workRow(i, "restore")),
-      ...data.reviewRequests.filter((r) => r.hidden).map((r) => reviewRow(r, "restore")),
+      ...data.items.filter((item) => hidden.has(item.id)).map((item) => workRow(item, "restore")),
+      ...data.reviewRequests.filter((pr) => hidden.has(pr.id)).map((pr) => reviewRow(pr, "restore")),
     ];
     document.getElementById("card-hidden").hidden = hiddenRows.length === 0;
     document.getElementById("hidden-summary").textContent = `Hidden · ${hiddenRows.length}`;
     document.getElementById("hidden-list").innerHTML = hiddenRows.join("");
-
-    const auto = document.getElementById("autopilot");
-    auto.textContent = data.autopilot
-      ? `autopilot on${data.lastPass?.at ? ` · pass ${ago(data.lastPass.at)} ago` : ""}`
-      : "autopilot off";
-    auto.className = `pill ${data.autopilot ? "on" : "off"}`;
-
-    renderOverrides(data.agentOptions);
-  };
-
-  const refreshLog = async (id) => {
-    try {
-      const res = await fetch(`/api/session-log?id=${encodeURIComponent(id)}`);
-      const data = await res.json();
-      const el = document.getElementById(`log-${id}`);
-      if (el) {
-        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40 || el.scrollTop === 0;
-        el.textContent = data.log || "(empty)";
-        if (atBottom) el.scrollTop = el.scrollHeight;
-      }
-    } catch {}
   };
 
   const refresh = async () => {
@@ -447,109 +235,19 @@
     document.getElementById("refreshed").textContent = `refreshed ${ago(lastFetched)} ago`;
   };
 
-  document.querySelector("main").addEventListener("click", async (event) => {
-    const t = event.target;
-    try {
-      if (t.id === "autopilot") {
-        if (t.disabled) return;
-        t.disabled = true;
-        try {
-          const data = await post("/api/autopilot", { on: !lastData?.autopilot });
-          lastData.autopilot = data.autopilot;
-          render(lastData);
-        } finally {
-          t.disabled = false;
-        }
-        return;
-      }
-      if (t.dataset.copytext !== undefined || t.dataset.copy !== undefined) {
-        const text = t.dataset.copytext ?? t.dataset.copy;
-        try { await navigator.clipboard.writeText(text); } catch {
-          const area = document.createElement("textarea");
-          area.value = text; document.body.appendChild(area); area.select();
-          document.execCommand("copy"); area.remove();
-        }
-        const orig = t.textContent; t.textContent = "copied"; t.disabled = true;
-        setTimeout(() => { t.textContent = orig; t.disabled = false; }, 1400);
-        return;
-      }
-      if (t.classList.contains("lb")) {
-        const agent = t.dataset.agent || null;
-        const body = { id: t.dataset.id, prNumber: t.dataset.pr ? Number(t.dataset.pr) : null };
-        if (agent) {
-          body.agent = agent;
-          if (agent === "claude") {
-            if (selection.claudeModel) body.model = selection.claudeModel;
-            if (selection.claudeEffort) body.effort = selection.claudeEffort;
-          }
-          if (agent === "codex" && selection.codexEffort) body.effort = selection.codexEffort;
-        }
-        t.disabled = true;
-        await post("/api/launch", body);
-        t.textContent = "launched ✓";
-        setTimeout(refresh, 800);
-        return;
-      }
-      if (t.dataset.approve || t.dataset.dismiss) {
-        const id = t.dataset.approve ?? t.dataset.dismiss;
-        t.disabled = true; t.textContent = t.dataset.approve ? "running…" : "dismissing…";
-        await post(t.dataset.approve ? "/api/approve" : "/api/dismiss", { id });
-        await refresh();
-        return;
-      }
-      if (t.dataset.transition) {
-        const itemId = t.dataset.id;
-        t.disabled = true;
-        t.textContent = t.dataset.transition === "approve" ? "moving…" : "dismissing…";
-        const result = await post("/api/transition", { itemId, action: t.dataset.transition });
-        if (lastData) {
-          lastData.transitions = (lastData.transitions ?? []).filter((x) => x.itemId !== itemId);
-          if (t.dataset.transition === "approve") {
-            const item = lastData.items.find((i) => i.id === itemId);
-            if (item) item.status = result.target;
-          }
-          render(lastData);
-        }
-        return;
-      }
-      if (t.dataset.answer) {
-        const id = t.dataset.answer;
-        const box = document.getElementById(`answer-${id}`);
-        const text = (box?.value ?? "").trim();
-        if (!text) { box?.focus(); return; }
-        t.disabled = true;
-        t.textContent = "continuing…";
-        await post("/api/session-answer", { id, text });
-        await refresh();
-        return;
-      }
-      if (t.dataset.cancel) { await post("/api/session-cancel", { id: t.dataset.cancel }); await refresh(); return; }
-      if (t.dataset.clear) { await post("/api/session-clear", { id: t.dataset.clear }); await refresh(); return; }
-      if (t.dataset.log) {
-        const id = t.dataset.log;
-        if (openLogs.has(id)) openLogs.delete(id); else openLogs.add(id);
-        render(lastData);
-        return;
-      }
-      if (t.classList.contains("act")) {
-        const { action, id } = t.dataset;
-        await post(`/api/${action}`, { id });
-        for (const entry of [...lastData.items, ...lastData.reviewRequests]) {
-          if (entry.id === id) entry.hidden = action === "hide";
-        }
-        render(lastData);
-        return;
-      }
-    } catch (err) {
-      t.disabled = false;
-      showError(err.message);
-    }
+  document.querySelector("main").addEventListener("click", (event) => {
+    const target = event.target;
+    if (!target.classList.contains("act")) return;
+    const { action, id } = target.dataset;
+    if (action === "hide") hidden.add(id);
+    else hidden.delete(id);
+    try { localStorage.setItem("inflight-hidden", JSON.stringify([...hidden])); } catch {}
+    render(lastData);
   });
 
   refresh();
   setInterval(refresh, REFRESH_MS);
   setInterval(showRefreshed, 15_000);
-  setInterval(() => { for (const id of openLogs) refreshLog(id); }, 5_000);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && lastFetched && Date.now() - lastFetched > 30_000) refresh();
   });
