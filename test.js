@@ -302,3 +302,12 @@ test("dashboard has no agent execution or external write endpoints", () => {
   assert.equal(ui.includes('method: "POST"'), false, "UI should not call write endpoints");
   assert.deepEqual(Object.keys(packageJson.scripts), ["start", "test"]);
 });
+
+test("dashboard keeps work queues primary instead of rendering summary metrics", () => {
+  const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.equal(ui.includes('id="overview"'), false);
+  assert.equal(ui.includes('class="metric'), false);
+  for (const queue of ["needs_you", "waiting", "reviews", "no_pr"]) {
+    assert.equal(ui.includes(`id="card-${queue}"`), true, `${queue} queue should remain visible`);
+  }
+});

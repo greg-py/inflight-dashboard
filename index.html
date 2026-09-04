@@ -4,194 +4,235 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>In-flight</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛫</text></svg>" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 fill=%22%231b1b18%22/><path d=%22M15 46 46 15M26 15h20v20%22 fill=%22none%22 stroke=%22%23f3f0e7%22 stroke-width=%225%22/></svg>" />
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #f4f6fb; --surface: rgba(255, 255, 255, 0.88); --surface-solid: #ffffff;
-    --surface-hover: #f8faff; --border: #e1e6f0; --border-strong: #d3dbea;
-    --text: #172033; --text-2: #667085; --text-3: #98a2b3;
-    --blue: #3f63dd; --blue-soft: #edf2ff; --purple: #7657db; --purple-soft: #f1edff;
-    --red: #c2414b; --red-soft: #fff0f1; --amber: #a96915; --amber-soft: #fff7e8;
-    --green: #367b52; --green-soft: #edf8f1; --neutral-soft: #f1f3f7;
-    --shadow: 0 1px 2px rgba(22, 31, 50, 0.04), 0 10px 30px rgba(48, 59, 86, 0.07);
+    --paper: #f1eee5;
+    --ink: #1c1c19;
+    --ink-2: #6d695f;
+    --ink-3: #989286;
+    --rule: #d0c9ba;
+    --rule-strong: #8d887d;
+    --wash: #e9e5da;
+    --hover: #e7e2d5;
+    --action: #b94332;
+    --waiting: #9a681e;
+    --development: #356879;
+    --review: #76516a;
+    --good: #357254;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0e121c; --surface: rgba(21, 26, 40, 0.88); --surface-solid: #151a28;
-      --surface-hover: #1a2030; --border: #262d3e; --border-strong: #343d52;
-      --text: #f3f5fa; --text-2: #a5aec0; --text-3: #737e94;
-      --blue: #91a7ff; --blue-soft: #1a274c; --purple: #b9a6ff; --purple-soft: #292244;
-      --red: #ff9ba3; --red-soft: #3b2029; --amber: #f4c276; --amber-soft: #392b18;
-      --green: #8bd4a8; --green-soft: #193326; --neutral-soft: #252b39;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.22), 0 14px 36px rgba(0, 0, 0, 0.18);
+      --paper: #181815;
+      --ink: #efecdf;
+      --ink-2: #aaa69a;
+      --ink-3: #77746b;
+      --rule: #3c3a34;
+      --rule-strong: #77736a;
+      --wash: #23231f;
+      --hover: #292823;
+      --action: #ef7865;
+      --waiting: #d8a34d;
+      --development: #6eafbf;
+      --review: #bc8eaa;
+      --good: #79b891;
     }
   }
   * { box-sizing: border-box; }
   body {
-    min-height: 100vh; margin: 0; color: var(--text);
-    background:
-      radial-gradient(circle at 8% -10%, color-mix(in srgb, var(--blue) 13%, transparent) 0, transparent 34rem),
-      radial-gradient(circle at 92% 2%, color-mix(in srgb, var(--purple) 10%, transparent) 0, transparent 32rem),
-      var(--bg);
-    font: 13.5px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    min-height: 100vh;
+    margin: 0;
+    color: var(--ink);
+    background: var(--paper);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 1440px; margin: 0 auto; padding: 28px 28px 64px; }
-  a { color: var(--blue); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 5px; }
+  main { max-width: 1540px; margin: 0 auto; padding: 26px 30px 64px; }
+  a { color: inherit; text-decoration-color: var(--rule-strong); text-underline-offset: 3px; }
+  a:hover { color: var(--action); text-decoration-color: currentColor; }
+  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
 
-  .topbar { display: flex; align-items: center; gap: 12px; padding: 0 2px 20px; }
-  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-  .brand-mark {
-    display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 auto;
-    border: 1px solid color-mix(in srgb, var(--blue) 26%, var(--border)); border-radius: 12px;
-    background: linear-gradient(145deg, color-mix(in srgb, var(--blue-soft) 75%, var(--surface-solid)), var(--surface-solid));
-    color: var(--blue); box-shadow: 0 6px 18px color-mix(in srgb, var(--blue) 16%, transparent);
+  .masthead {
+    display: grid;
+    grid-template-columns: minmax(260px, 1.25fr) minmax(260px, 1fr) auto;
+    gap: 28px;
+    align-items: end;
+    padding: 13px 0 18px;
+    border-top: 5px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
   }
-  .brand-mark svg { width: 20px; height: 20px; }
-  .topbar h1 { font-size: 20px; line-height: 1.15; font-weight: 720; margin: 0; letter-spacing: -0.025em; }
-  .tagline { margin: 3px 0 0; color: var(--text-2); font-size: 12.5px; }
-  .spacer { flex: 1; }
-  .refresh-status {
-    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
-    padding: 7px 10px; border: 1px solid var(--border); border-radius: 999px;
-    background: color-mix(in srgb, var(--surface-solid) 76%, transparent); color: var(--text-3);
-    font-size: 11.5px; box-shadow: 0 1px 2px rgba(22, 31, 50, 0.03);
+  .masthead-label, .source-label, .section-code, .count, .key, .chip, .reviewer, .sync-status, .footer-note {
+    font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   }
-  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 13%, transparent); }
-  .sync-dot.warn { background: var(--amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 14%, transparent); }
-  .banner { margin: 0 0 12px; padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--amber) 22%, transparent); border-radius: 10px; background: var(--amber-soft); color: var(--amber); font-size: 12px; }
-  #error { margin: 0 0 12px; color: var(--red); font-size: 12.5px; }
+  .masthead-label { margin: 0 0 10px; color: var(--ink-2); font-size: 9px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+  .masthead h1 { margin: 0; font-size: clamp(36px, 4.8vw, 64px); line-height: .8; letter-spacing: -.055em; }
+  .masthead h1 > span:not(.joiner) { font-weight: 850; }
+  .masthead h1 .joiner { display: inline-block; margin: 0 .06em; font-size: .55em; font-weight: 500; letter-spacing: 0; vertical-align: .18em; }
+  .masthead h1 em { font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-weight: 400; }
+  .purpose { max-width: 420px; margin: 0; color: var(--ink-2); font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 17px; line-height: 1.35; }
+  .sync-block { min-width: 178px; text-align: right; }
+  .source-label { display: block; margin-bottom: 5px; color: var(--ink-3); font-size: 8.5px; font-weight: 700; letter-spacing: .14em; }
+  .sync-status { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 10px; white-space: nowrap; }
+  .sync-dot { width: 7px; height: 7px; background: var(--good); }
+  .sync-dot.warn { background: var(--waiting); }
 
-  .overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
-  .metric {
-    position: relative; min-width: 0; padding: 11px 13px; overflow: hidden;
-    border: 1px solid var(--border); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow);
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  #banners { margin-top: 10px; }
+  .banner { margin: 0 0 6px; padding: 7px 10px; border-left: 4px solid var(--waiting); background: var(--wash); color: var(--waiting); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
+  #error { margin: 10px 0 0; padding-left: 10px; border-left: 4px solid var(--action); color: var(--action); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
+
+  .board { display: grid; grid-template-columns: minmax(0, 13fr) minmax(360px, 8fr); gap: 0; align-items: start; margin-top: 26px; }
+  .board-column { min-width: 0; }
+  .board-primary { padding-right: 28px; }
+  .board-secondary { padding-left: 28px; border-left: 1px solid var(--ink); }
+  .work-section { --lane: var(--ink-2); min-width: 0; margin-bottom: 28px; }
+  #card-needs_you { --lane: var(--action); }
+  #card-waiting { --lane: var(--waiting); }
+  #card-reviews { --lane: var(--review); }
+  #card-no_pr { --lane: var(--development); }
+
+  .section-head {
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 12px;
+    min-height: 43px;
+    margin: 0;
+    padding: 8px 0 9px;
+    border-top: 3px solid var(--ink);
+    border-bottom: 1px solid var(--rule-strong);
   }
-  .metric::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--tone); }
-  .metric.needs { --tone: var(--red); } .metric.waiting { --tone: var(--amber); }
-  .metric.development { --tone: var(--blue); } .metric.reviews { --tone: var(--purple); }
-  .metric-value { font-size: 19px; line-height: 1; font-weight: 720; letter-spacing: -0.02em; }
-  .metric-label { margin-top: 5px; color: var(--text-2); font-size: 11px; font-weight: 600; letter-spacing: 0.015em; }
+  .section-code { color: var(--lane); font-size: 9px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
+  .section-title { font-size: 15px; font-weight: 760; letter-spacing: -.012em; }
+  .count { color: var(--ink-3); font-size: 9px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
 
-  .grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(320px, 5fr); gap: 14px; align-items: start; }
-  @media (max-width: 1020px) { .grid { grid-template-columns: minmax(0, 1fr); } }
-  .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 15px; overflow: hidden; box-shadow: var(--shadow); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
-  .card-head {
-    display: flex; align-items: center; gap: 8px; min-height: 43px;
-    margin: 0; padding: 11px 16px; border-bottom: 1px solid var(--border);
-    background: linear-gradient(180deg, color-mix(in srgb, var(--surface-solid) 46%, transparent), transparent);
-    font-size: 11.5px; font-weight: 700; letter-spacing: 0.025em;
+  .row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 92px minmax(0, 1fr) max-content 34px;
+    gap: 12px;
+    align-items: start;
+    min-height: 48px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--rule);
   }
-  .card-head::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 10%, transparent); }
-  .card-head .count { margin-left: auto; min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--neutral-soft); color: var(--text-2); text-align: center; font-weight: 650; letter-spacing: 0; }
-  .h-needs { color: var(--red); } .h-wait { color: var(--amber); }
-  .h-dev { color: var(--blue); } .h-rev { color: var(--purple); }
-
-  .row { display: flex; align-items: flex-start; gap: 12px; padding: 11px 16px; border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent); transition: background 140ms ease, border-color 140ms ease; }
-  .card-head + .row { border-top: 0; }
-  .row:hover { background: var(--surface-hover); }
-  .key { font-family: ui-monospace, "SF Mono", "Roboto Mono", monospace; font-size: 11.5px; min-width: 74px; padding-top: 2px; color: var(--text-3); }
-  .key a { color: var(--text-2); font-weight: 600; }
-  .body { flex: 1; min-width: 0; }
-  .summary { color: var(--text); font-size: 13px; font-weight: 590; letter-spacing: -0.006em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sub { color: var(--text-3); font-size: 11px; font-weight: 450; }
-  .line { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 0; margin-top: 4px; color: var(--text-2); font-size: 11.5px; }
-  .pr-link { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; }
-  .signals { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
-  .signal { padding: 1px 6px; border-radius: 5px; background: var(--neutral-soft); color: var(--text-2); font-size: 10px; font-weight: 620; line-height: 1.55; white-space: nowrap; }
-  .signal.r-bad { background: var(--red-soft); color: var(--red); }
-  .signal.r-good { background: var(--green-soft); color: var(--green); }
-  .signal.r-warn { background: var(--amber-soft); color: var(--amber); }
-  .context-line { color: var(--text-3); }
-  .context-line a, .review-meta a { font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; }
+  .row::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: transparent; }
+  .row:hover { background: var(--hover); }
+  .row:hover::before { background: var(--lane); }
+  .key { padding: 2px 0 0 11px; color: var(--ink-3); font-size: 10.5px; }
+  .key a { color: var(--ink-2); font-weight: 650; }
+  .body { min-width: 0; }
+  .summary { overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 630; letter-spacing: -.006em; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { color: var(--ink-3); font: 10px/1.4 ui-monospace, "SFMono-Regular", monospace; font-weight: 400; }
+  .line { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; margin-top: 3px; color: var(--ink-2); font-size: 10.5px; }
+  .pr-link { max-width: 230px; overflow: hidden; font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .signals { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+  .signal { color: var(--ink-2); font: 650 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; white-space: nowrap; }
+  .signal::before { content: "—"; margin-right: 4px; color: var(--ink-3); }
+  .signal.r-bad { color: var(--action); }
+  .signal.r-bad::before { content: "!"; color: var(--action); }
+  .signal.r-good { color: var(--good); }
+  .signal.r-good::before { content: "✓"; color: var(--good); }
+  .signal.r-warn { color: var(--waiting); }
+  .signal.r-warn::before { content: "△"; color: var(--waiting); }
+  .context-line { color: var(--ink-3); font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 10px; }
+  .context-line a, .review-meta a { font-family: ui-monospace, "SFMono-Regular", monospace; }
   .meta-item { display: inline-flex; align-items: center; }
-  .meta-item + .meta-item::before { content: "·"; margin-right: 5px; color: var(--text-3); }
-  .meta-item.age-warn { color: var(--amber); font-weight: 600; }
+  .meta-item + .meta-item::before { content: "/"; margin-right: 7px; color: var(--rule-strong); }
+  .meta-item.age-warn { color: var(--waiting); font-weight: 700; }
 
-  .chip { flex: 0 0 auto; margin-top: 1px; padding: 2px 8px; border: 1px solid transparent; border-radius: 999px; background: var(--neutral-soft); color: var(--text-2); font-size: 9.5px; font-weight: 680; letter-spacing: 0.02em; line-height: 1.6; white-space: nowrap; }
-  .chip.status-draft-pr { background: var(--purple-soft); color: var(--purple); }
-  .chip.status-open-pr, .chip.status-in-code-review { background: var(--blue-soft); color: var(--blue); }
-  .chip.status-ready-to-test { background: var(--amber-soft); color: var(--amber); }
-  .chip.status-in-testing { background: var(--purple-soft); color: var(--purple); }
-  .chip.status-ready-to-merge { background: var(--green-soft); color: var(--green); }
-  .empty { padding: 18px 16px 20px; color: var(--text-3); font-size: 12px; text-align: center; }
+  .chip { padding-top: 2px; color: var(--ink-2); font-size: 8.5px; font-weight: 750; letter-spacing: .06em; line-height: 1.45; text-align: right; text-transform: uppercase; white-space: nowrap; }
+  .chip::before { content: "["; color: var(--rule-strong); }
+  .chip::after { content: "]"; color: var(--rule-strong); }
+  .chip.status-draft-pr, .chip.status-in-testing { color: var(--review); }
+  .chip.status-open-pr, .chip.status-in-code-review { color: var(--development); }
+  .chip.status-ready-to-test { color: var(--waiting); }
+  .chip.status-ready-to-merge { color: var(--good); }
+  .empty { padding: 14px 0 18px 104px; border-bottom: 1px solid var(--rule); color: var(--ink-3); font: italic 12px/1.5 "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
 
-  .act { opacity: 0; pointer-events: none; flex: 0 0 auto; margin-top: 0; padding: 2px 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-solid); color: var(--text-3); cursor: pointer; font: inherit; font-size: 9.5px; transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease; }
-  .act:hover { border-color: var(--border-strong); color: var(--text); }
+  .act { opacity: 0; pointer-events: none; padding: 1px 0; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--ink-3); cursor: pointer; font: 8.5px/1.4 ui-monospace, "SFMono-Regular", monospace; text-transform: uppercase; }
+  .act::before { content: "["; }
+  .act::after { content: "]"; }
+  .act:hover { border-bottom-color: currentColor; color: var(--action); }
   .row:hover .act, .row:focus-within .act { opacity: 1; pointer-events: auto; }
 
-  .reviewer { display: flex; align-items: center; gap: 7px; min-width: 112px; max-width: 112px; padding-top: 0; }
-  .avatar { display: grid; place-items: center; width: 24px; height: 24px; flex: 0 0 auto; border-radius: 8px; background: var(--purple-soft); color: var(--purple); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 10px; font-weight: 750; }
-  .reviewer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 10.5px; }
+  .reviewer { overflow: hidden; padding-top: 2px; color: var(--review); font-size: 9.5px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+  .reviewer::before { content: "@"; color: var(--ink-3); }
+  .review-meta { font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 9.5px; }
 
-  details.folded > summary { padding: 12px 16px; color: var(--text-3); cursor: pointer; font-size: 11.5px; font-weight: 650; letter-spacing: 0.02em; list-style-position: inside; }
-  #hidden-list { max-height: 340px; overflow-y: auto; }
-  #card-reviews { max-height: 520px; overflow-y: auto; }
-  #card-reviews .card-head { position: sticky; top: 0; z-index: 1; background: var(--surface-solid); }
-  #hidden-list .row { opacity: 0.55; }
+  details.folded > summary { padding: 9px 0; border-top: 1px solid var(--rule-strong); border-bottom: 1px solid var(--rule); color: var(--ink-3); cursor: pointer; font: 650 9px/1.45 ui-monospace, "SFMono-Regular", monospace; letter-spacing: .08em; list-style-position: inside; text-transform: uppercase; }
+  #hidden-list { max-height: 340px; overflow-x: hidden; overflow-y: auto; scrollbar-color: var(--rule-strong) transparent; scrollbar-width: thin; }
+  #card-reviews { max-height: 540px; overflow-y: auto; scrollbar-color: var(--rule-strong) transparent; scrollbar-width: thin; }
+  #card-reviews .section-head { position: sticky; top: 0; z-index: 1; background: var(--paper); }
+  #hidden-list .row { opacity: .52; }
   #hidden-list .row:hover { opacity: 1; }
 
-  @media (max-width: 720px) {
-    main { padding: 20px 14px 48px; }
-    .tagline { display: none; }
-    .overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .grid { grid-template-columns: minmax(0, 1fr); }
-    .row { gap: 8px; padding: 10px 12px; }
-    .key { min-width: 68px; }
-    .reviewer { min-width: 28px; max-width: 28px; }
-    .reviewer-name { display: none; }
-    .chip { max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+  .footer-note { display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--ink); color: var(--ink-3); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
+
+  @media (max-width: 1040px) {
+    .masthead { grid-template-columns: 1fr auto; }
+    .purpose { grid-column: 1 / -1; grid-row: 2; max-width: 620px; }
+    .sync-block { grid-column: 2; grid-row: 1; }
+    .board { grid-template-columns: minmax(0, 1fr); }
+    .board-primary { padding-right: 0; }
+    .board-secondary { padding: 4px 0 0; border-left: 0; }
+  }
+  @media (max-width: 640px) {
+    main { padding: 18px 14px 44px; }
+    .masthead { gap: 14px; padding-top: 10px; }
+    .masthead h1 { font-size: 36px; }
+    .purpose { font-size: 15px; }
+    .sync-block { min-width: 0; }
+    .source-label { display: none; }
+    .board { margin-top: 20px; }
+    .section-head { grid-template-columns: 72px minmax(0, 1fr) auto; }
+    .row { grid-template-columns: 72px minmax(0, 1fr) 26px; gap: 8px; }
+    .chip { grid-column: 2; grid-row: 2; justify-self: start; padding-top: 0; text-align: left; }
+    .act { grid-column: 3; grid-row: 1; opacity: 1; pointer-events: auto; }
+    .empty { padding-left: 80px; }
+    .summary { white-space: normal; }
+    .reviewer { max-width: 72px; }
+    .footer-note span:last-child { display: none; }
   }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
 <main>
-  <div class="topbar">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M5 17.5 17.5 5M9 5h8v8" />
-          <path d="M5 8.5v9.5a1 1 0 0 0 1 1h9.5" opacity=".55" />
-        </svg>
-      </span>
-      <div>
-        <h1>In-flight</h1>
-        <p class="tagline">Your work, sorted by who has the next move</p>
-      </div>
+  <header class="masthead">
+    <div>
+      <p class="masthead-label">Work control / local</p>
+      <h1><span>IN</span><span class="joiner">–</span><em>FLIGHT</em></h1>
     </div>
-    <span class="spacer"></span>
-    <span class="refresh-status"><span class="sync-dot" id="sync-dot"></span><span id="refreshed">syncing…</span></span>
-  </div>
+    <p class="purpose">An operating ledger for the work in motion—sorted by whose move comes next.</p>
+    <div class="sync-block">
+      <span class="source-label">Jira + GitHub data link</span>
+      <span class="sync-status"><span class="sync-dot" id="sync-dot"></span><span id="refreshed" aria-live="polite">syncing…</span></span>
+    </div>
+  </header>
   <div id="banners"></div>
   <div id="error" hidden></div>
-  <div class="overview" id="overview" aria-label="Work overview"></div>
-  <div class="grid">
-    <div class="col">
-      <div class="card" id="card-needs_you"></div>
-      <div class="card" id="card-waiting"></div>
+  <div class="board">
+    <div class="board-column board-primary">
+      <section class="work-section" id="card-needs_you"></section>
+      <section class="work-section" id="card-waiting"></section>
     </div>
-    <div class="col">
-      <div class="card" id="card-reviews"></div>
-      <div class="card" id="card-no_pr"></div>
-      <div class="card" hidden id="card-hidden">
+    <aside class="board-column board-secondary" aria-label="Review and development queues">
+      <section class="work-section" id="card-reviews"></section>
+      <section class="work-section" id="card-no_pr"></section>
+      <section class="work-section" hidden id="card-hidden">
         <details class="folded" id="hidden-details"><summary id="hidden-summary">Hidden</summary><div id="hidden-list"></div></details>
-      </div>
-    </div>
+      </section>
+    </aside>
   </div>
+  <footer class="footer-note"><span>Local read-only workboard</span><span>Grouped by ownership / ordered by attention</span></footer>
 </main>
 <script>
   const REFRESH_MS = 180_000;
   const SECTIONS = [
-    { id: "needs_you", label: "Needs you", cls: "h-needs" },
-    { id: "waiting", label: "Waiting on others", cls: "h-wait" },
-    { id: "no_pr", label: "In development", cls: "h-dev" },
+    { id: "needs_you", label: "Needs you", code: "01 / your move" },
+    { id: "waiting", label: "Waiting on others", code: "02 / waiting" },
+    { id: "no_pr", label: "In development", code: "04 / building" },
   ];
   const BAD = ["changes requested", "CI failing", "conflicts with base"];
   const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · move to QA", "approved"];
@@ -257,23 +298,23 @@
     const ciSpan = pr.ci === "failure" ? `<span class="meta-item">${reasonSpan("CI failing")}</span>` : pr.ci === "success" ? `<span class="meta-item">${reasonSpan("CI green")}</span>` : "";
     const details = [
       pr.ticketKey ? `<span class="meta-item"><a href="${esc(pr.ticketUrl)}" target="_blank" rel="noopener">${esc(pr.ticketKey)}</a></span>` : "",
-      `<span class="meta-item"><a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(repoName(pr.repo))} #${pr.number}</a></span>`,
+      `<span class="meta-item"><a href="${esc(pr.url)}" target="_blank" rel="noopener">PR #${pr.number}</a></span>`,
       `<span class="meta-item">+${pr.additions}/−${pr.deletions}</span>`,
       `<span class="meta-item ${pr.ageDays >= STALE_REVIEW_DAYS ? "age-warn" : ""}">open ${pr.ageDays}d</span>`,
       pr.viewerReviewState ? `<span class="meta-item">re-requested</span>` : "",
       pr.isDraft ? `<span class="meta-item">draft</span>` : "",
       ciSpan,
     ].filter(Boolean);
-    const initial = String(pr.author ?? "?").charAt(0).toUpperCase();
-    return `<div class="row"><span class="key reviewer" title="${esc(pr.author)}"><span class="avatar">${esc(initial)}</span><span class="reviewer-name">${esc(pr.author)}</span></span>
+    return `<div class="row"><span class="key reviewer" title="${esc(pr.author)}">${esc(pr.author)}</span>
       <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
       <div class="line review-meta">${details.join("")}</div></div>
       <span class="chip">${esc(repoName(pr.repo))}</span>
       <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" aria-label="${action} review ${esc(pr.title)}">${action}</button></div>`;
   };
 
-  const card = (el, cls, label, rows, emptyText) => {
-    el.innerHTML = `<h2 class="card-head ${cls}"><span>${label}</span><span class="count">${rows.length}</span></h2>` +
+  const card = (el, code, label, rows, emptyText) => {
+    const count = `${rows.length} ${rows.length === 1 ? "item" : "items"}`;
+    el.innerHTML = `<h2 class="section-head"><span class="section-code">${code}</span><span class="section-title">${label}</span><span class="count">${count}</span></h2>` +
       (rows.length ? rows.join("") : `<div class="empty">${emptyText}</div>`);
   };
 
@@ -291,24 +332,15 @@
     const visible = data.items.filter((item) => !hidden.has(item.id));
     const visibleReviews = data.reviewRequests.filter((pr) => !hidden.has(pr.id));
     const counts = Object.fromEntries(SECTIONS.map((section) => [section.id, visible.filter((item) => item.section === section.id).length]));
-    const metrics = [
-      { cls: "needs", value: counts.needs_you, label: "Needs your attention" },
-      { cls: "waiting", value: counts.waiting, label: "Waiting on others" },
-      { cls: "development", value: counts.no_pr, label: "In development" },
-      { cls: "reviews", value: visibleReviews.length, label: "Reviews requested" },
-    ];
-    document.getElementById("overview").innerHTML = metrics
-      .map((metric) => `<div class="metric ${metric.cls}"><div class="metric-value">${metric.value}</div><div class="metric-label">${metric.label}</div></div>`)
-      .join("");
     for (const section of SECTIONS) {
       const rows = visible.filter((i) => i.section === section.id).map((i) => workRow(i, "hide"));
-      card(document.getElementById(`card-${section.id}`), section.cls, section.label, rows, "nothing here");
+      card(document.getElementById(`card-${section.id}`), section.code, section.label, rows, "nothing here");
     }
 
     const attention = counts.needs_you + visibleReviews.length;
     document.title = attention > 0 ? `(${attention}) In-flight` : "In-flight";
 
-    card(document.getElementById("card-reviews"), "h-rev", "Reviews requested of you",
+    card(document.getElementById("card-reviews"), "03 / reviews", "Reviews requested of you",
       visibleReviews.map((pr) => reviewRow(pr, "hide")), "nothing waiting on your review");
 
     const hiddenRows = [
