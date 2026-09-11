@@ -17,6 +17,9 @@ import {
   reviewerWaits,
   awaitingReason,
   reReviewReason,
+  commentLabel,
+  threadState,
+  summarizeThreads,
   prNumbersInCommits,
   buildShipping,
 } from "./lib/model.js";
@@ -140,6 +143,105 @@ test("categorizePr surfaces defects and settled merge-ready work", () => {
     categorizePr({ ...basePr, pendingReviewers: [{ login: "alice", waitingDays: 4 }] })
       .reasons.includes("awaiting @alice · 4d"),
   );
+});
+
+const thread = (overrides = {}) => ({
+  isResolved: false,
+  isOutdated: false,
+  firstComment: { body: "_suggestion_ do the thing", login: "alice", isBot: false },
+  lastComment: { login: "alice", isBot: false, createdAt: "2026-09-11T10:00:00Z" },
+  ...overrides,
+});
+
+test("commentLabel reads every dialect the reviewers here actually use", () => {
+  // Conventional Comments in italics.
+  assert.equal(commentLabel("_suggestion_ The five `.default()`s here"), "suggestion");
+  assert.equal(commentLabel("_praise_ Nice catch on `.partial()`"), "praise");
+  assert.equal(commentLabel("_robustness_ `reports` is one entry per report"), "robustness");
+  // The same vocabulary in bold, with and without a parenthetical.
+  assert.equal(commentLabel("**issue (blocking):** this guard reads the cookie"), "issue");
+  assert.equal(commentLabel("**nit:** `render` still injects kwargs"), "nit");
+  assert.equal(commentLabel("**blocking** — this endpoint is blocked by the rules"), "blocking");
+  assert.equal(commentLabel("**Blocking — the caller-supplied `meetingId` is never authorized.**"), "blocking");
+  // A bold sentence that is not a label reads as unlabelled, which is
+  // actionable — the safe way to be wrong.
+  assert.equal(commentLabel("**This keyset read has no supporting index.** The query filters"), null);
+  assert.equal(commentLabel("**Defense in depth for the same issue** — optional if you take"), null);
+  assert.equal(commentLabel("Plain prose with no label at all"), null);
+  // Review bots lead with a tracking comment; the label follows it.
+  assert.equal(commentLabel("<!-- CURSOR_AUTOMATION_ID: abc -->\n_bug_ the lease is never acquired"), "bug");
+  assert.equal(commentLabel(null), null);
+});
+
+test("threadState tells apart done, answered, praise and still-open", () => {
+  const me = "greg-py";
+  // Explicitly resolved wins however the thread reads.
+  assert.equal(threadState(thread({ isResolved: true }), me), "resolved");
+  // Your own reply is your answer, whoever opened the thread.
+  assert.equal(
+    threadState(thread({ lastComment: { login: me, isBot: false } }), me),
+    "answered",
+  );
+  // Praise asks for nothing, so it never counts as unaddressed.
+  assert.equal(
+    threadState(thread({ firstComment: { body: "_praise_ lovely", login: "alice" } }), me),
+    "praise",
+  );
+  // The anchored code has changed since: the fix almost always landed without
+  // anyone marking the thread, and chasing it forever is what makes the count
+  // worth ignoring.
+  assert.equal(threadState(thread({ isOutdated: true }), me), "stale");
+  // Bots review every push and get triaged separately.
+  assert.equal(
+    threadState(thread({ lastComment: { login: "codex", isBot: true } }), me),
+    "bot",
+  );
+  // An unlabelled comment from someone else, on current code: open.
+  assert.equal(
+    threadState(thread({ firstComment: { body: "is this right?", login: "alice" } }), me),
+    "open",
+  );
+});
+
+test("summarizeThreads counts only what still wants something from you", () => {
+  const summary = summarizeThreads(
+    [
+      thread(),
+      thread({ lastComment: { login: "alice", isBot: false, createdAt: "2026-09-11T18:00:00Z" } }),
+      thread({ isResolved: true }),
+      thread({ isOutdated: true }),
+      thread({ firstComment: { body: "_praise_ nice", login: "alice" } }),
+      thread({ lastComment: { login: "greg-py", isBot: false } }),
+      thread({ lastComment: { login: "codex", isBot: true } }),
+    ],
+    "greg-py",
+  );
+  assert.equal(summary.openThreads, 2);
+  assert.equal(summary.botThreads, 1);
+  // The newest live thread, for timing against the last push.
+  assert.equal(summary.newestOpenThreadAt, "2026-09-11T18:00:00Z");
+  assert.deepEqual(summarizeThreads([], "greg-py"), {
+    openThreads: 0,
+    botThreads: 0,
+    newestOpenThreadAt: null,
+  });
+});
+
+test("comments left alongside an approval read as follow-ups, not blockers", () => {
+  // A reviewer who approves and leaves notes inline still left notes: the old
+  // shape zeroed these out entirely and the row said only "approved".
+  const approved = categorizePr({ ...basePr, reviewDecision: "APPROVED", openThreads: 6 });
+  assert.ok(approved.reasons.includes("6 open follow-ups"));
+  assert.ok(approved.reasons.includes("approved"));
+  // Outstanding work withdraws the merge-ready claim.
+  assert.ok(!approved.reasons.some((reason) => reason.includes("ready to merge")));
+  assert.equal(approved.bucket, "needs_you");
+
+  // Unapproved, the same threads are feedback still holding the review open.
+  const open = categorizePr({ ...basePr, openThreads: 1 });
+  assert.ok(open.reasons.includes("1 open thread"));
+  assert.equal(categorizePr({ ...basePr, reviewDecision: "APPROVED", openThreads: 1 })
+    .reasons.includes("1 open follow-up"), true);
 });
 
 test("a defect never hides the review state behind it", () => {
@@ -376,6 +478,15 @@ test("work whose every PR is still a draft sits in development, not needs-you", 
   assert.equal(mixed[0].section, "needs_you");
 });
 
+const reviewThread = ({ body, first, last, isResolved = false, isOutdated = false, bot = false }) => ({
+  isResolved,
+  isOutdated,
+  firstComment: { nodes: [{ body, author: { login: first, __typename: bot ? "Bot" : "User" } }] },
+  lastComment: {
+    nodes: [{ createdAt: "2026-08-24T12:00:00Z", author: { login: last, __typename: bot ? "Bot" : "User" } }],
+  },
+});
+
 test("mapReviewPr exposes review context without deriving actions", () => {
   const node = {
     number: 7400,
@@ -390,10 +501,13 @@ test("mapReviewPr exposes review context without deriving actions", () => {
     deletions: 2,
     reviewThreads: {
       nodes: [
-        { isResolved: false, comments: { nodes: [{ author: { login: "marcus", __typename: "User" } }] } },
-        { isResolved: false, comments: { nodes: [{ author: { login: "greg-py", __typename: "User" } }] } },
-        { isResolved: true, comments: { nodes: [{ author: { login: "greg-py", __typename: "User" } }] } },
-        { isResolved: false, comments: { nodes: [{ author: { login: "chatgpt-codex-connector", __typename: "Bot" } }] } },
+        // The author had the last word: answered.
+        reviewThread({ body: "_question_ why here?", first: "greg-py", last: "marcus" }),
+        // A reviewer's point the author has not come back to: open.
+        reviewThread({ body: "**issue:** this leaks", first: "greg-py", last: "greg-py" }),
+        reviewThread({ body: "_bug_ off by one", first: "greg-py", last: "greg-py", isResolved: true }),
+        reviewThread({ body: "_praise_ tidy", first: "greg-py", last: "greg-py" }),
+        reviewThread({ body: "P2 badge stuff", first: "chatgpt-codex-connector", last: "chatgpt-codex-connector", bot: true }),
       ],
     },
     commits: {
@@ -412,7 +526,7 @@ test("mapReviewPr exposes review context without deriving actions", () => {
   const pr = mapReviewPr(node, Date.parse("2026-08-26T00:00:00Z"));
   assert.equal(pr.id, "PerformYard/PerformYard#7400");
   assert.equal(pr.ticketKey, "PY-14000");
-  assert.equal(pr.openThreads, 1, "only human reviewer-last unresolved threads count");
+  assert.equal(pr.openThreads, 1, "answered, resolved and praise threads all drop out");
   assert.equal(pr.botThreads, 1, "bot threads counted separately");
   assert.equal(pr.qaGate, "blocked");
   assert.equal(pr.ageDays, 6);
@@ -482,6 +596,9 @@ test("every reason the model emits has a severity the UI can classify", () => {
   assert.ok(ui.includes("/· (\\d+)d$/"));
   // A pull request with nobody assigned is flagged at any age.
   assert.ok(ui.includes("/^no reviewer requested/"));
+  // Follow-ups on an approved PR are worth doing, but they are not blockers.
+  assert.ok(ui.includes("/open follow-up/"));
+  assert.ok(ui.includes("/open thread/"));
 });
 
 test("the theme toggle overrides the system scheme in both directions", () => {

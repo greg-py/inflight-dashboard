@@ -333,7 +333,7 @@
     const waiting = /^(awaiting|re-review|changes pushed)/.test(reason);
     const age = waiting && reason.match(/· (\d+)d$/);
     const cls = BAD.includes(reason) || /open thread/.test(reason) || /^CI stuck/.test(reason) ? "r-bad"
-      : /^no reviewer requested/.test(reason) || /bot thread/.test(reason)
+      : /^no reviewer requested/.test(reason) || /bot thread/.test(reason) || /open follow-up/.test(reason)
         || (age && Number(age[1]) >= STALE_REVIEW_DAYS) ? "r-warn"
       : GOOD.includes(reason) ? "r-good" : "";
     return `<span class="signal ${cls}">${esc(reason)}</span>`;

@@ -35,6 +35,33 @@ they say something about QA's backlog, not about the branch. The QA gate is
 still read from the check the CI verdict ignores, which is what makes
 `QA passed · ready to merge` meaningful.
 
+## Review threads
+
+An unresolved thread is only worth showing if it still wants something from you,
+so each one is classified before it is counted:
+
+- **resolved** — marked resolved on GitHub. Done however it reads.
+- **answered** — the last word is yours. Replying "fixed in 028e480" is the
+  normal way feedback closes here, and it counts whether or not anyone ticks the
+  thread. This is the common case by a wide margin.
+- **praise** — the comment explicitly asks for nothing. Reviewers label with
+  Conventional Comments, in italics (`_praise_`) or bold (`**nit:**`,
+  `**issue (blocking):**`), so the label is read rather than guessed. Only the
+  leading word counts, and only a recognised one: an unlabelled comment is
+  actionable, which is the safe way to be wrong. `nonActionableLabels` holds the
+  set that asks for nothing.
+- **stale** — the code the comment was anchored to has changed since. The fix
+  nearly always went in without anyone marking the thread, and chasing these
+  forever is what makes a thread count worth ignoring.
+- **bot** — counted separately. Bots review every push, often after an approval,
+  and their findings need their own triage.
+- **open** — everything else, and the only kind that reaches a row.
+
+Threads survive approval. A reviewer who approves and leaves notes inline still
+left notes, and those show as `6 open follow-ups` — worth doing before the
+merge, but not the blocker that `6 open threads` on an unapproved pull request
+would be.
+
 Feedback counts as addressed when commits land after the changes-requested
 review — unless a thread was opened after that push, which no push can have
 answered. Draft pull requests are unfinished rather than defective: they carry
