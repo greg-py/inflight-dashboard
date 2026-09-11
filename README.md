@@ -11,9 +11,38 @@ A local, read-only dashboard for ongoing work. It joins your assigned Jira ticke
 - work you have merged that is not in the last release yet; and
 - unread GitHub notifications the board does not already show in full.
 
-Pull requests awaiting review name the reviewer who has been sitting on them
-longest — `awaiting @alice +1 · 4d` — so a stalled review says who to nudge. The
-clock is the reviewer's own: a re-request restarts it.
+## Signals
+
+Every row states both what is wrong and where the review stands, because those
+need different responses: `CI failing · approved` is one fix from shipping,
+`CI failing · awaiting @alice · 4d` is a fix and then a wait.
+
+Waiting work names who owes the next move. `awaiting @alice +1 · 4d` is a first
+review, timed from the request — a re-request restarts that reviewer's clock.
+`re-review @alice · 1d` is feedback you have already answered, timed from the
+push that answered it rather than from the original request. `no reviewer
+requested · 9d` means nobody is on the hook at all, which is flagged at any age:
+unlike a slow reviewer, it will never resolve on its own.
+
+`approved · ready to merge` is a claim about the whole pull request, so anything
+red withdraws it and the row falls back to a plain `approved`. Approved work
+held by QA reads `approved · awaiting QA` while it is queued and `approved · in
+QA` once testing has started.
+
+Checks that stay red until a person acts (`QA Code Review`, `Check removed test
+IDs against QA`) are listed in `noisyChecks` and never count as a broken build —
+they say something about QA's backlog, not about the branch. The QA gate is
+still read from the check the CI verdict ignores, which is what makes
+`QA passed · ready to merge` meaningful.
+
+Feedback counts as addressed when commits land after the changes-requested
+review — unless a thread was opened after that push, which no push can have
+answered. Draft pull requests are unfinished rather than defective: they carry
+their real problems as signals but never become anyone's move, and they sit in
+the development queue until they are marked ready.
+
+Within a section, work sorts closest-to-shipping first, so what is one action
+from done is never buried under what has barely started.
 
 Above the board sits a strip of two readings:
 

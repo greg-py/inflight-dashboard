@@ -16,6 +16,7 @@ import {
   buildInbox,
   reviewerWaits,
   awaitingReason,
+  reReviewReason,
   prNumbersInCommits,
   buildShipping,
 } from "./lib/model.js";
@@ -105,12 +106,22 @@ test("categorizePr surfaces defects and settled merge-ready work", () => {
     { reviewDecision: "CHANGES_REQUESTED" },
     { ci: "failure" },
     { mergeable: "CONFLICTING" },
-    { isDraft: true },
     { openThreads: 2 },
     { botThreads: 1 },
   ]) {
     assert.equal(categorizePr({ ...basePr, ...overrides }).bucket, "needs_you", JSON.stringify(overrides));
   }
+  // A draft is unfinished, not defective: it never becomes anyone's move on its
+  // own, and sectionFor routes it to the in-development queue.
+  const draft = categorizePr({ ...basePr, isDraft: true });
+  assert.equal(draft.bucket, "waiting");
+  assert.equal(draft.defect, false);
+  assert.ok(draft.reasons.includes("draft"));
+  // Nobody is waiting to review a draft, so it gets no awaiting label either.
+  assert.ok(!draft.reasons.some((reason) => reason.startsWith("awaiting")));
+  // A real problem on a draft still counts as a defect.
+  assert.equal(categorizePr({ ...basePr, isDraft: true, ci: "failure" }).defect, true);
+
   const withBot = categorizePr({ ...basePr, botThreads: 2 });
   assert.ok(withBot.reasons.includes("2 bot threads"));
   const approved = categorizePr({ ...basePr, reviewDecision: "APPROVED" });
@@ -123,7 +134,87 @@ test("categorizePr surfaces defects and settled merge-ready work", () => {
     ),
   );
   assert.equal(categorizePr({ ...basePr, reviewDecision: "APPROVED", ci: "pending" }).bucket, "waiting");
-  assert.ok(categorizePr(basePr).reasons.includes("awaiting review · 2d"));
+  // basePr has nobody requested, which is its own signal.
+  assert.ok(categorizePr(basePr).reasons.includes("no reviewer requested · 2d"));
+  assert.ok(
+    categorizePr({ ...basePr, pendingReviewers: [{ login: "alice", waitingDays: 4 }] })
+      .reasons.includes("awaiting @alice · 4d"),
+  );
+});
+
+test("a defect never hides the review state behind it", () => {
+  // The old shape reported only the defect, so "fix CI and merge" and "fix CI
+  // and then wait days for a first look" rendered identically.
+  const failing = { ...basePr, ci: "failure" };
+  const approved = categorizePr({ ...failing, reviewDecision: "APPROVED" });
+  assert.deepEqual(approved.reasons, ["CI failing", "approved"]);
+  // "ready to merge" is a claim about the whole PR, so a defect withdraws it.
+  assert.ok(!approved.reasons.some((reason) => reason.includes("ready to merge")));
+  assert.equal(approved.bucket, "needs_you");
+
+  const unreviewed = categorizePr({
+    ...failing,
+    pendingReviewers: [{ login: "alice", waitingDays: 4 }],
+  });
+  assert.deepEqual(unreviewed.reasons, ["CI failing", "awaiting @alice · 4d"]);
+
+  // Unaddressed changes-requested already says whose move it is; no second label.
+  const rejected = categorizePr({ ...failing, reviewDecision: "CHANGES_REQUESTED" });
+  assert.deepEqual(rejected.reasons, ["changes requested", "CI failing"]);
+});
+
+test("a thread opened after the fix lands is not answered by it", () => {
+  const pushed = {
+    ...basePr,
+    reviewDecision: "CHANGES_REQUESTED",
+    changesRequestedAt: "2026-09-10T14:00:00Z",
+    lastCommitAt: "2026-09-10T20:00:00Z",
+    lastCommitDaysAgo: 1,
+    openThreads: 1,
+    pendingReviewers: [{ login: "alice", waitingDays: 3 }],
+  };
+  // Thread predates the push: the push answered it, so it is their move.
+  const answered = categorizePr({ ...pushed, newestOpenThreadAt: "2026-09-10T15:00:00Z" });
+  assert.deepEqual(answered.reasons, ["re-review @alice · 1d", "CI green"]);
+
+  // Thread lands after the push: it cannot have been answered by it.
+  const reopened = categorizePr({ ...pushed, newestOpenThreadAt: "2026-09-11T09:00:00Z" });
+  assert.ok(reopened.reasons.includes("1 open thread"));
+  assert.ok(reopened.reasons.includes("changes requested"));
+  assert.ok(!reopened.reasons.some((reason) => reason.startsWith("re-review")));
+  assert.equal(reopened.bucket, "needs_you");
+});
+
+test("re-review names the reviewer and times it from the push, not the request", () => {
+  const pr = {
+    lastCommitDaysAgo: 1,
+    // alice was requested 6 days ago, but the fix landed 1 day ago — the wait
+    // that matters started with the push.
+    pendingReviewers: [{ login: "alice", waitingDays: 6 }, { login: "bob", waitingDays: 2 }],
+  };
+  assert.equal(reReviewReason(pr), "re-review @alice +1 · 1d");
+  assert.equal(
+    reReviewReason({ lastCommitDaysAgo: 3, pendingReviewers: [] }),
+    "changes pushed · awaiting re-review · 3d",
+  );
+  assert.equal(
+    reReviewReason({ lastCommitDaysAgo: null, pendingReviewers: [] }),
+    "changes pushed · awaiting re-review",
+  );
+});
+
+test("human-gated checks never read as a broken build", () => {
+  // Both of these are red until a person acts and say nothing about the branch.
+  const gated = [
+    { name: "QA Code Review", conclusion: "FAILURE" },
+    { name: "Check removed test IDs against QA", conclusion: "FAILURE" },
+  ];
+  assert.equal(effectiveCi([...gated, { name: "Unit Tests", conclusion: "SUCCESS" }]), "success");
+  // A real failure still comes through.
+  assert.equal(effectiveCi([...gated, { name: "Unit Tests", conclusion: "FAILURE" }]), "failure");
+  // The QA gate is still read from the check the CI verdict ignores.
+  assert.equal(qaGateState(gated), "blocked");
+  assert.equal(qaGateState([{ name: "QA Code Review", conclusion: "SUCCESS" }]), "passed");
 });
 
 test("changes pushed after review put the ball back in the reviewer's court", () => {
@@ -165,21 +256,28 @@ test("sectionFor respects PR state and QA holds", () => {
 });
 
 test("statusRank follows the delivery pipeline", () => {
+  // Closest to shipping first, so the work that is one action from done sits
+  // at the top of its section.
   const ordered = [
-    "Draft PR",
-    "Open PR",
-    "TO DO",
-    "READY",
-    "In Progress",
-    "In Code Review",
-    "Ready To Test",
-    "In Testing",
     "READY TO MERGE",
+    "Blocked",
+    "In Testing",
+    "Ready To Test",
+    "In Code Review",
+    "In Progress",
+    "READY",
+    "TO DO",
+    "Open PR",
+    "Draft PR",
   ];
   for (let index = 1; index < ordered.length; index += 1) {
-    assert.ok(statusRank(ordered[index - 1]) < statusRank(ordered[index]));
+    assert.ok(
+      statusRank(ordered[index - 1]) < statusRank(ordered[index]),
+      `${ordered[index - 1]} should outrank ${ordered[index]}`,
+    );
   }
-  assert.ok(statusRank("Some New Status") > statusRank("READY TO MERGE"));
+  // An unrecognised status sorts last rather than jumping the queue.
+  assert.ok(statusRank("Some New Status") > statusRank("Draft PR"));
 });
 
 const jiraIssue = (key, overrides = {}) => ({
@@ -249,6 +347,33 @@ test("buildItems annotates merged work and relabels QA-held approvals", () => {
   );
   assert.equal(held[0].section, "waiting");
   assert.deepEqual(held[0].prs[0].reasons, ["approved · awaiting QA", "CI green"]);
+
+  // Once QA has actually started, the work is not still queued for it.
+  const inQa = buildItems(
+    [jiraIssue("PY-13549", { status: { name: "In Testing", statusCategory: { key: "indeterminate" } } })],
+    [prFixture({ headRefName: "PY-13549-x", bucket: "needs_you", reasons: ["approved · ready to merge", "CI green"] })],
+  );
+  assert.deepEqual(inQa[0].prs[0].reasons, ["approved · in QA", "CI green"]);
+});
+
+test("work whose every PR is still a draft sits in development, not needs-you", () => {
+  const draftOnly = buildItems(
+    [],
+    [prFixture({ number: 700, title: "Prototype", headRefName: "proto", isDraft: true, ...categorizePr({ ...basePr, isDraft: true, ci: "failure", mergeable: "CONFLICTING" }) })],
+  );
+  assert.equal(draftOnly[0].section, "no_pr");
+  // Even a draft carrying real problems: it is unfinished, not anyone's move.
+  assert.ok(draftOnly[0].prs[0].reasons.includes("CI failing"));
+
+  // A ready PR alongside a draft still decides the section.
+  const mixed = buildItems(
+    [jiraIssue("PY-14000")],
+    [
+      prFixture({ number: 1, headRefName: "PY-14000-a", isDraft: true, bucket: "waiting", defect: false }),
+      prFixture({ number: 2, headRefName: "PY-14000-b", bucket: "needs_you", defect: true }),
+    ],
+  );
+  assert.equal(mixed[0].section, "needs_you");
 });
 
 test("mapReviewPr exposes review context without deriving actions", () => {
@@ -334,6 +459,31 @@ test("dashboard keeps work queues primary instead of rendering summary metrics",
   assert.ok(ui.indexOf('class="instruments"') < ui.indexOf('class="board"'));
 });
 
+test("every reason the model emits has a severity the UI can classify", () => {
+  const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  // Each settled-state label the model can produce must be in the good list, or
+  // merge-ready work renders as undifferentiated grey.
+  for (const reason of [
+    "CI green",
+    "approved",
+    "approved · ready to merge",
+    "QA passed · ready to merge",
+    "approved · awaiting QA",
+    "approved · in QA",
+    "approved · move to QA",
+  ]) {
+    assert.ok(ui.includes(`"${reason}"`), `GOOD list is missing ${reason}`);
+  }
+  for (const reason of ["changes requested", "CI failing", "conflicts with base"]) {
+    assert.ok(ui.includes(`"${reason}"`), `BAD list is missing ${reason}`);
+  }
+  // The wait clock is read off any of the three waiting label shapes.
+  assert.ok(ui.includes("/^(awaiting|re-review|changes pushed)/"));
+  assert.ok(ui.includes("/· (\\d+)d$/"));
+  // A pull request with nobody assigned is flagged at any age.
+  assert.ok(ui.includes("/^no reviewer requested/"));
+});
+
 test("the theme toggle overrides the system scheme in both directions", () => {
   const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   // One palette, resolved by color-scheme, so light and dark cannot drift apart.
@@ -384,11 +534,15 @@ test("awaitingReason names the longest-waiting reviewer and counts the rest", ()
     }),
     "awaiting @alice +1 · 4d",
   );
-  // No reviewer, or a request older than the timeline window: fall back to age.
-  assert.equal(awaitingReason({ ageDays: 9, pendingReviewers: [] }), "awaiting review · 9d");
+  // Nobody on the hook is a different problem from a slow reviewer.
+  assert.equal(
+    awaitingReason({ ageDays: 9, pendingReviewers: [] }),
+    "no reviewer requested · 9d",
+  );
+  // A request older than the timeline window: say who, invent no clock.
   assert.equal(
     awaitingReason({ ageDays: 9, pendingReviewers: [{ login: "alice", waitingDays: null }] }),
-    "awaiting review · 9d",
+    "awaiting @alice",
   );
 });
 

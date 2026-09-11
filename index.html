@@ -181,6 +181,7 @@
   .chip.status-open-pr, .chip.status-in-code-review { color: var(--development); }
   .chip.status-ready-to-test { color: var(--waiting); }
   .chip.status-ready-to-merge { color: var(--good); }
+  .chip.status-blocked { color: var(--action); }
   .section-note { padding: 7px 0 0 104px; color: var(--ink-3); font: 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; }
   .empty { padding: 14px 0 18px 104px; border-bottom: 1px solid var(--rule); color: var(--ink-3); font: italic 12px/1.5 "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
 
@@ -272,7 +273,7 @@
     { id: "no_pr", label: "In development", code: "04 / building" },
   ];
   const BAD = ["changes requested", "CI failing", "conflicts with base"];
-  const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · move to QA", "approved"];
+  const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · in QA", "approved · move to QA", "approved"];
   const STALE_REVIEW_DAYS = 3;
   // Burn this far behind the sprint clock reads as at-risk.
   const SPRINT_BEHIND_POINTS = 10;
@@ -327,10 +328,13 @@
   };
 
   const reasonSpan = (reason) => {
-    // Both "awaiting review · 4d" and "awaiting @alice +1 · 4d" carry the wait.
-    const age = reason.match(/^awaiting .*· (\d+)d$/);
+    // "awaiting @alice +1 · 4d" and "re-review @bob · 4d" both carry a wait; a
+    // pull request with nobody assigned is stalled at any age.
+    const waiting = /^(awaiting|re-review|changes pushed)/.test(reason);
+    const age = waiting && reason.match(/· (\d+)d$/);
     const cls = BAD.includes(reason) || /open thread/.test(reason) || /^CI stuck/.test(reason) ? "r-bad"
-      : /bot thread/.test(reason) || (age && Number(age[1]) >= STALE_REVIEW_DAYS) ? "r-warn"
+      : /^no reviewer requested/.test(reason) || /bot thread/.test(reason)
+        || (age && Number(age[1]) >= STALE_REVIEW_DAYS) ? "r-warn"
       : GOOD.includes(reason) ? "r-good" : "";
     return `<span class="signal ${cls}">${esc(reason)}</span>`;
   };
