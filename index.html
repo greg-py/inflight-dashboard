@@ -5,40 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>In-flight</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 fill=%22%231b1b18%22/><path d=%22M15 46 46 15M26 15h20v20%22 fill=%22none%22 stroke=%22%23f3f0e7%22 stroke-width=%225%22/></svg>" />
+<script>
+  try {
+    const stored = localStorage.getItem("inflight-theme");
+    if (stored === "light" || stored === "dark") document.documentElement.dataset.theme = stored;
+  } catch {}
+</script>
 <style>
   :root {
+    /* Follows the system unless the reader picks a side; every token below
+       resolves against whatever color-scheme ends up in force, so the toggle
+       only has to set that one property. */
     color-scheme: light dark;
-    --paper: #f1eee5;
-    --ink: #1c1c19;
-    --ink-2: #6d695f;
-    --ink-3: #989286;
-    --rule: #d0c9ba;
-    --rule-strong: #8d887d;
-    --wash: #e9e5da;
-    --hover: #e7e2d5;
-    --action: #b94332;
-    --waiting: #9a681e;
-    --development: #356879;
-    --review: #76516a;
-    --good: #357254;
+    --paper: light-dark(#f1eee5, #181815);
+    --ink: light-dark(#1c1c19, #efecdf);
+    --ink-2: light-dark(#6d695f, #aaa69a);
+    --ink-3: light-dark(#989286, #77746b);
+    --rule: light-dark(#d0c9ba, #3c3a34);
+    --rule-strong: light-dark(#8d887d, #77736a);
+    --wash: light-dark(#e9e5da, #23231f);
+    --hover: light-dark(#e7e2d5, #292823);
+    --action: light-dark(#b94332, #ef7865);
+    --waiting: light-dark(#9a681e, #d8a34d);
+    --development: light-dark(#356879, #6eafbf);
+    --review: light-dark(#76516a, #bc8eaa);
+    --good: light-dark(#357254, #79b891);
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #181815;
-      --ink: #efecdf;
-      --ink-2: #aaa69a;
-      --ink-3: #77746b;
-      --rule: #3c3a34;
-      --rule-strong: #77736a;
-      --wash: #23231f;
-      --hover: #292823;
-      --action: #ef7865;
-      --waiting: #d8a34d;
-      --development: #6eafbf;
-      --review: #bc8eaa;
-      --good: #79b891;
-    }
-  }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
   * { box-sizing: border-box; }
   body {
     min-height: 100vh;
@@ -54,25 +48,23 @@
   a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
 
   .masthead {
-    display: grid;
-    grid-template-columns: minmax(260px, 1.25fr) minmax(260px, 1fr) auto;
+    display: flex;
     gap: 28px;
-    align-items: end;
+    align-items: flex-end;
+    justify-content: space-between;
     padding: 13px 0 18px;
     border-top: 5px solid var(--ink);
     border-bottom: 1px solid var(--ink);
   }
-  .masthead-label, .source-label, .section-code, .count, .key, .chip, .reviewer, .sync-status, .footer-note {
+  .section-code, .count, .key, .chip, .reviewer, .sync-status,
+  .instrument-code, .instrument-note, .gauge-name, .gauge-pct, .gauge-reset, .sprint-figure small {
     font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   }
-  .masthead-label { margin: 0 0 10px; color: var(--ink-2); font-size: 9px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
   .masthead h1 { margin: 0; font-size: clamp(36px, 4.8vw, 64px); line-height: .8; letter-spacing: -.055em; }
   .masthead h1 > span:not(.joiner) { font-weight: 850; }
   .masthead h1 .joiner { display: inline-block; margin: 0 .06em; font-size: .55em; font-weight: 500; letter-spacing: 0; vertical-align: .18em; }
   .masthead h1 em { font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-weight: 400; }
-  .purpose { max-width: 420px; margin: 0; color: var(--ink-2); font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-size: 17px; line-height: 1.35; }
-  .sync-block { min-width: 178px; text-align: right; }
-  .source-label { display: block; margin-bottom: 5px; color: var(--ink-3); font-size: 8.5px; font-weight: 700; letter-spacing: .14em; }
+  .masthead-status { display: flex; align-items: center; gap: 14px; }
   .sync-status { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 10px; white-space: nowrap; }
   .sync-dot { width: 7px; height: 7px; background: var(--good); }
   .sync-dot.warn { background: var(--waiting); }
@@ -80,6 +72,46 @@
   #banners { margin-top: 10px; }
   .banner { margin: 0 0 6px; padding: 7px 10px; border-left: 4px solid var(--waiting); background: var(--wash); color: var(--waiting); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
   #error { margin: 10px 0 0; padding-left: 10px; border-left: 4px solid var(--action); color: var(--action); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
+
+  .instruments {
+    display: grid;
+    grid-template-columns: minmax(0, 13fr) minmax(360px, 8fr);
+    margin-top: 22px;
+    border-top: 3px solid var(--ink);
+    border-bottom: 1px solid var(--rule-strong);
+  }
+  .instrument { min-width: 0; padding: 11px 0 12px; }
+  .instrument:first-child { padding-right: 28px; }
+  .instrument:last-child { padding-left: 28px; border-left: 1px solid var(--ink); }
+  .instrument-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .instrument-code { color: var(--lane, var(--ink-2)); font-size: 9px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
+  .instrument-note { overflow: hidden; color: var(--ink-3); font-size: 9px; letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+  .instrument-empty { color: var(--ink-3); font: italic 12px/1.5 "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
+
+  .meter { position: relative; height: 5px; border: 1px solid var(--rule); background: var(--wash); }
+  .meter-fill { height: 100%; background: var(--lane, var(--ink-2)); }
+  /* Where the sprint clock stands, against how much of the scope is closed. */
+  .meter-mark { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--ink); }
+  .m-good { --lane: var(--good); }
+  .m-warn { --lane: var(--waiting); }
+  .m-bad { --lane: var(--action); }
+
+  #sprint-pulse { --lane: var(--development); }
+  .sprint-body { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; align-items: center; gap: 16px; }
+  .sprint-figure { font-size: 21px; font-weight: 830; letter-spacing: -.035em; line-height: 1; white-space: nowrap; }
+  .sprint-figure small { display: block; margin-top: 4px; color: var(--ink-3); font-size: 8.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+  .sprint-figure.align-right { text-align: right; }
+  .sprint-figure.behind { color: var(--waiting); }
+
+  #capacity { --lane: var(--review); }
+  .gauges { display: grid; grid-template-columns: auto minmax(44px, 1fr) auto auto; align-items: center; gap: 7px 10px; }
+  .gauge-name { color: var(--ink-2); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
+  .gauge-pct { color: var(--ink); font-size: 10px; font-weight: 650; text-align: right; }
+  .gauge-reset { color: var(--ink-3); font-size: 9px; text-align: right; white-space: nowrap; }
+  /* An old reading is a floor, not a fiction: keep the colour, flag the age. */
+  .gauge-note { grid-column: 2 / -1; color: var(--ink-3); font: 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; }
+
+  .key.reason { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 
   .board { display: grid; grid-template-columns: minmax(0, 13fr) minmax(360px, 8fr); gap: 0; align-items: start; margin-top: 26px; }
   .board-column { min-width: 0; }
@@ -90,6 +122,7 @@
   #card-waiting { --lane: var(--waiting); }
   #card-reviews { --lane: var(--review); }
   #card-no_pr { --lane: var(--development); }
+  #card-shipping { --lane: var(--good); }
 
   .section-head {
     display: grid;
@@ -148,6 +181,7 @@
   .chip.status-open-pr, .chip.status-in-code-review { color: var(--development); }
   .chip.status-ready-to-test { color: var(--waiting); }
   .chip.status-ready-to-merge { color: var(--good); }
+  .section-note { padding: 7px 0 0 104px; color: var(--ink-3); font: 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; }
   .empty { padding: 14px 0 18px 104px; border-bottom: 1px solid var(--rule); color: var(--ink-3); font: italic 12px/1.5 "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
 
   .act { opacity: 0; pointer-events: none; padding: 1px 0; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--ink-3); cursor: pointer; font: 8.5px/1.4 ui-monospace, "SFMono-Regular", monospace; text-transform: uppercase; }
@@ -155,6 +189,9 @@
   .act::after { content: "]"; }
   .act:hover { border-bottom-color: currentColor; color: var(--action); }
   .row:hover .act, .row:focus-within .act { opacity: 1; pointer-events: auto; }
+  /* Borrows the row-action look but is always live, so it must come after the
+     .act defaults above. */
+  .theme-toggle { opacity: 1; pointer-events: auto; letter-spacing: .06em; }
 
   .reviewer { overflow: hidden; padding-top: 2px; color: var(--review); font-size: 9.5px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
   .reviewer::before { content: "@"; color: var(--ink-3); }
@@ -167,12 +204,10 @@
   #hidden-list .row { opacity: .52; }
   #hidden-list .row:hover { opacity: 1; }
 
-  .footer-note { display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--ink); color: var(--ink-3); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
-
   @media (max-width: 1040px) {
-    .masthead { grid-template-columns: 1fr auto; }
-    .purpose { grid-column: 1 / -1; grid-row: 2; max-width: 620px; }
-    .sync-block { grid-column: 2; grid-row: 1; }
+    .instruments { grid-template-columns: minmax(0, 1fr); }
+    .instrument:first-child { padding-right: 0; }
+    .instrument:last-child { padding: 12px 0 0; border-top: 1px solid var(--rule); border-left: 0; }
     .board { grid-template-columns: minmax(0, 1fr); }
     .board-primary { padding-right: 0; }
     .board-secondary { padding: 4px 0 0; border-left: 0; }
@@ -181,18 +216,19 @@
     main { padding: 18px 14px 44px; }
     .masthead { gap: 14px; padding-top: 10px; }
     .masthead h1 { font-size: 36px; }
-    .purpose { font-size: 15px; }
-    .sync-block { min-width: 0; }
-    .source-label { display: none; }
+    .sprint-body { grid-template-columns: auto auto; justify-content: space-between; gap: 11px 16px; }
+    .sprint-track { grid-row: 2; grid-column: 1 / -1; }
+    .gauges { grid-template-columns: auto minmax(34px, 1fr) auto; }
+    /* Routine reset times are chatter at this width; an age warning is not. */
+    .gauge-reset { display: none; }
     .board { margin-top: 20px; }
     .section-head { grid-template-columns: 72px minmax(0, 1fr) auto; }
     .row { grid-template-columns: 72px minmax(0, 1fr) 26px; gap: 8px; }
     .chip { grid-column: 2; grid-row: 2; justify-self: start; padding-top: 0; text-align: left; }
     .act { grid-column: 3; grid-row: 1; opacity: 1; pointer-events: auto; }
-    .empty { padding-left: 80px; }
+    .empty, .section-note { padding-left: 80px; }
     .summary { white-space: normal; }
     .reviewer { max-width: 72px; }
-    .footer-note span:last-child { display: none; }
   }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 </style>
@@ -200,18 +236,18 @@
 <body>
 <main>
   <header class="masthead">
-    <div>
-      <p class="masthead-label">Work control / local</p>
-      <h1><span>IN</span><span class="joiner">–</span><em>FLIGHT</em></h1>
-    </div>
-    <p class="purpose">An operating ledger for the work in motion—sorted by whose move comes next.</p>
-    <div class="sync-block">
-      <span class="source-label">Jira + GitHub data link</span>
+    <h1><span>IN</span><span class="joiner">–</span><em>FLIGHT</em></h1>
+    <div class="masthead-status">
+      <button type="button" class="act theme-toggle" id="theme-toggle" aria-live="polite">system</button>
       <span class="sync-status"><span class="sync-dot" id="sync-dot"></span><span id="refreshed" aria-live="polite">syncing…</span></span>
     </div>
   </header>
   <div id="banners"></div>
   <div id="error" hidden></div>
+  <section class="instruments" aria-label="Sprint burn and AI capacity">
+    <div class="instrument" id="sprint-pulse"></div>
+    <div class="instrument" id="capacity"></div>
+  </section>
   <div class="board">
     <div class="board-column board-primary">
       <section class="work-section" id="card-needs_you"></section>
@@ -220,12 +256,13 @@
     <aside class="board-column board-secondary" aria-label="Review and development queues">
       <section class="work-section" id="card-reviews"></section>
       <section class="work-section" id="card-no_pr"></section>
+      <section class="work-section" id="card-shipping"></section>
+      <section class="work-section" id="card-inbox"></section>
       <section class="work-section" hidden id="card-hidden">
         <details class="folded" id="hidden-details"><summary id="hidden-summary">Hidden</summary><div id="hidden-list"></div></details>
       </section>
     </aside>
   </div>
-  <footer class="footer-note"><span>Local read-only workboard</span><span>Grouped by ownership / ordered by attention</span></footer>
 </main>
 <script>
   const REFRESH_MS = 180_000;
@@ -237,6 +274,8 @@
   const BAD = ["changes requested", "CI failing", "conflicts with base"];
   const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · move to QA", "approved"];
   const STALE_REVIEW_DAYS = 3;
+  // Burn this far behind the sprint clock reads as at-risk.
+  const SPRINT_BEHIND_POINTS = 10;
 
   let lastData = null;
   let lastFetched = null;
@@ -247,11 +286,37 @@
     }
   } catch {}
 
+  const THEMES = ["system", "light", "dark"];
+  let theme = "system";
+  try {
+    const stored = localStorage.getItem("inflight-theme");
+    if (THEMES.includes(stored)) theme = stored;
+  } catch {}
+  const applyTheme = () => {
+    if (theme === "system") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+    const button = document.getElementById("theme-toggle");
+    button.textContent = theme;
+    button.title = `Theme: ${theme} — click for ${THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]}`;
+  };
+
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
   const ago = (ts) => {
     if (!ts) return "";
     const m = Math.max(0, Math.round((Date.now() - ts) / 60_000));
-    return m < 1 ? "now" : m < 60 ? `${m}m` : `${Math.round(m / 60)}h`;
+    if (m < 1) return "now";
+    if (m < 60) return `${m}m`;
+    if (m < 1440) return `${Math.round(m / 60)}h`;
+    return `${Math.round(m / 1440)}d`;
+  };
+
+  const until = (ts) => {
+    const minutes = Math.round((Date.parse(ts) - Date.now()) / 60_000);
+    if (!Number.isFinite(minutes)) return "";
+    if (minutes <= 0) return "resetting";
+    if (minutes < 60) return `resets ${minutes}m`;
+    if (minutes < 1440) return `resets ${Math.round(minutes / 60)}h`;
+    return `resets ${Math.round(minutes / 1440)}d`;
   };
 
   const showError = (msg) => {
@@ -262,7 +327,8 @@
   };
 
   const reasonSpan = (reason) => {
-    const age = reason.match(/^awaiting review · (\d+)d$/);
+    // Both "awaiting review · 4d" and "awaiting @alice +1 · 4d" carry the wait.
+    const age = reason.match(/^awaiting .*· (\d+)d$/);
     const cls = BAD.includes(reason) || /open thread/.test(reason) || /^CI stuck/.test(reason) ? "r-bad"
       : /bot thread/.test(reason) || (age && Number(age[1]) >= STALE_REVIEW_DAYS) ? "r-warn"
       : GOOD.includes(reason) ? "r-good" : "";
@@ -312,6 +378,72 @@
       <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" aria-label="${action} review ${esc(pr.title)}">${action}</button></div>`;
   };
 
+  const clampPct = (value) => Math.min(100, Math.max(0, Number(value) || 0));
+  const meter = (percent, cls, markPercent) =>
+    `<div class="meter ${cls}"><div class="meter-fill" style="width:${clampPct(percent)}%"></div>` +
+    `${Number.isFinite(markPercent) ? `<span class="meter-mark" style="left:${clampPct(markPercent)}%"></span>` : ""}</div>`;
+
+  const instrumentHead = (code, note) =>
+    `<div class="instrument-head"><span class="instrument-code">${esc(code)}</span><span class="instrument-note">${esc(note)}</span></div>`;
+
+  const renderSprint = (sprint) => {
+    const el = document.getElementById("sprint-pulse");
+    const pulse = sprint?.pulse;
+    if (!pulse) {
+      el.innerHTML = instrumentHead("Sprint", "") +
+        `<div class="instrument-empty">${esc(sprint?.error ?? "no active sprint")}</div>`;
+      return;
+    }
+    const behind = pulse.timePercent - pulse.donePercent;
+    const cls = behind > SPRINT_BEHIND_POINTS * 2 ? "m-bad" : behind > SPRINT_BEHIND_POINTS ? "m-warn" : "m-good";
+    el.innerHTML = instrumentHead("Sprint", pulse.name) +
+      `<div class="sprint-body">
+        <div class="sprint-figure">${pulse.counts.done}<span style="color:var(--ink-3)">/${pulse.counts.total}</span><small>done · ${pulse.donePercent}%</small></div>
+        <div class="sprint-track" title="${pulse.donePercent}% of scope closed, ${pulse.timePercent}% of the sprint elapsed">${meter(pulse.donePercent, cls, pulse.timePercent)}</div>
+        <div class="sprint-figure align-right ${behind > SPRINT_BEHIND_POINTS ? "behind" : ""}">${pulse.daysLeft}d<small>left · day ${pulse.elapsedDays}/${pulse.totalDays}</small></div>
+      </div>`;
+  };
+
+  const gaugeRows = (provider) =>
+    provider.gauges
+      .map((gauge) => {
+        const cls = gauge.usedPercent >= 85 ? "m-bad" : gauge.usedPercent >= 60 ? "m-warn" : "m-good";
+        return `<div class="gauge-name">${esc(provider.name)} ${esc(gauge.label)}</div>` +
+          meter(gauge.usedPercent, cls) +
+          `<div class="gauge-pct">${gauge.usedPercent}%</div>` +
+          `<div class="gauge-reset">${esc(until(gauge.resetsAt))}</div>`;
+      })
+      .join("") +
+    // "100%" does not say whether the window is spent or the credits are gone.
+    (provider.note ? `<div class="gauge-note">${esc(provider.note)}</div>` : "");
+
+  const renderCapacity = (providers) => {
+    const el = document.getElementById("capacity");
+    const rows = (providers ?? [])
+      .map((provider) =>
+        provider.ok && provider.gauges.length > 0
+          ? gaugeRows(provider)
+          : `<div class="gauge-name">${esc(provider.name)}</div><div class="gauge-note">${esc(provider.ok ? "no active window" : provider.error)}</div>`,
+      )
+      .join("");
+    el.innerHTML = instrumentHead("Capacity", "limits used") +
+      (rows ? `<div class="gauges">${rows}</div>` : `<div class="instrument-empty">no providers reachable</div>`);
+  };
+
+  const shippingRow = (pr, action) =>
+    `<div class="row"><span class="key">${pr.ticketKey ? `<a href="${esc(pr.ticketUrl)}" target="_blank" rel="noopener">${esc(pr.ticketKey)}</a>` : "—"}</span>
+      <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
+      <div class="line review-meta"><span class="meta-item"><a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(repoName(pr.repo))} #${pr.number}</a></span><span class="meta-item">merged ${esc(ago(Date.parse(pr.mergedAt)))} ago</span><span class="meta-item">after ${esc(pr.tag)}</span></div></div>
+      <span class="chip status-ready-to-merge">unreleased</span>
+      <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" aria-label="${action} ${esc(pr.title)}">${action}</button></div>`;
+
+  const notificationRow = (note, action) =>
+    `<div class="row"><span class="key reason">${esc(note.reason)}</span>
+      <div class="body"><div class="summary" title="${esc(note.title)}"><a href="${esc(note.url)}" target="_blank" rel="noopener">${esc(note.title)}</a></div>
+      <div class="line context-line">${note.updatedAt ? `${esc(ago(Date.parse(note.updatedAt)))} ago` : ""}</div></div>
+      <span class="chip">${esc(repoName(note.repo))}</span>
+      <button type="button" class="act" data-action="${action}" data-id="${esc(note.id)}" aria-label="${action} ${esc(note.title)}">${action}</button></div>`;
+
   const card = (el, code, label, rows, emptyText) => {
     const count = `${rows.length} ${rows.length === 1 ? "item" : "items"}`;
     el.innerHTML = `<h2 class="section-head"><span class="section-code">${code}</span><span class="section-title">${label}</span><span class="count">${count}</span></h2>` +
@@ -329,15 +461,35 @@
     document.getElementById("banners").innerHTML = banners.join("");
     document.getElementById("sync-dot").classList.toggle("warn", banners.length > 0);
 
+    renderSprint(data.sprint);
+    renderCapacity(data.aiUsage);
+
+    const inboxItems = data.inbox?.items ?? [];
+    const shippingItems = data.shipping?.items ?? [];
     const visible = data.items.filter((item) => !hidden.has(item.id));
     const visibleReviews = data.reviewRequests.filter((pr) => !hidden.has(pr.id));
+    const visibleInbox = inboxItems.filter((note) => !hidden.has(note.id));
+    const visibleShipping = shippingItems.filter((pr) => !hidden.has(pr.id));
     const counts = Object.fromEntries(SECTIONS.map((section) => [section.id, visible.filter((item) => item.section === section.id).length]));
     for (const section of SECTIONS) {
       const rows = visible.filter((i) => i.section === section.id).map((i) => workRow(i, "hide"));
       card(document.getElementById(`card-${section.id}`), section.code, section.label, rows, "nothing here");
     }
 
-    const attention = counts.needs_you + visibleReviews.length;
+    const shippingNote = data.shipping?.error ?? data.shipping?.note;
+    card(document.getElementById("card-shipping"), "05 / shipping", "Merged, not shipped",
+      visibleShipping.map((pr) => shippingRow(pr, "hide")),
+      data.shipping?.error ? esc(data.shipping.error) : "everything merged is released");
+    if (shippingNote && visibleShipping.length > 0) {
+      document.getElementById("card-shipping").insertAdjacentHTML(
+        "beforeend", `<div class="section-note">${esc(shippingNote)}</div>`);
+    }
+
+    card(document.getElementById("card-inbox"), "06 / inbox", "GitHub inbox",
+      visibleInbox.map((note) => notificationRow(note, "hide")),
+      data.inbox?.error ? esc(data.inbox.error) : "inbox clear");
+
+    const attention = counts.needs_you + visibleReviews.length + visibleInbox.length;
     document.title = attention > 0 ? `(${attention}) In-flight` : "In-flight";
 
     card(document.getElementById("card-reviews"), "03 / reviews", "Reviews requested of you",
@@ -346,6 +498,8 @@
     const hiddenRows = [
       ...data.items.filter((item) => hidden.has(item.id)).map((item) => workRow(item, "restore")),
       ...data.reviewRequests.filter((pr) => hidden.has(pr.id)).map((pr) => reviewRow(pr, "restore")),
+      ...shippingItems.filter((pr) => hidden.has(pr.id)).map((pr) => shippingRow(pr, "restore")),
+      ...inboxItems.filter((note) => hidden.has(note.id)).map((note) => notificationRow(note, "restore")),
     ];
     document.getElementById("card-hidden").hidden = hiddenRows.length === 0;
     document.getElementById("hidden-summary").textContent = `Hidden · ${hiddenRows.length}`;
@@ -371,6 +525,12 @@
     document.getElementById("refreshed").textContent = relative === "now" ? "updated just now" : `updated ${relative} ago`;
   };
 
+  document.getElementById("theme-toggle").addEventListener("click", () => {
+    theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    try { localStorage.setItem("inflight-theme", theme); } catch {}
+    applyTheme();
+  });
+
   document.querySelector("main").addEventListener("click", (event) => {
     const target = event.target;
     if (!target.classList.contains("act")) return;
@@ -381,6 +541,7 @@
     render(lastData);
   });
 
+  applyTheme();
   refresh();
   setInterval(refresh, REFRESH_MS);
   setInterval(showRefreshed, 15_000);

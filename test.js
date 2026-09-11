@@ -10,8 +10,22 @@ import {
   sectionFor,
   statusRank,
   buildItems,
+  activeSprintOf,
+  buildSprintPulse,
+  htmlUrlFor,
+  buildInbox,
+  reviewerWaits,
+  awaitingReason,
+  prNumbersInCommits,
+  buildShipping,
 } from "./lib/model.js";
 import { mapReviewPr } from "./lib/integrations.js";
+import {
+  windowLabel,
+  normalizeClaudeUsage,
+  normalizeCodexRateLimits,
+  codexReachedNote,
+} from "./lib/ai-usage.js";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
   assert.deepEqual(
@@ -284,6 +298,7 @@ test("dashboard has no agent execution or external write endpoints", () => {
   const server = readFileSync(new URL("./server.js", import.meta.url), "utf8");
   const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const integrations = readFileSync(new URL("./lib/integrations.js", import.meta.url), "utf8");
+  const aiUsage = readFileSync(new URL("./lib/ai-usage.js", import.meta.url), "utf8");
   const packageJson = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
   for (const forbidden of [
     "startSession",
@@ -297,7 +312,11 @@ test("dashboard has no agent execution or external write endpoints", () => {
     assert.equal(server.includes(forbidden), false, `${forbidden} should not be served`);
     assert.equal(ui.includes(forbidden), false, `${forbidden} should not be rendered`);
     assert.equal(integrations.includes(forbidden), false, `${forbidden} should not be integrated`);
+    assert.equal(aiUsage.includes(forbidden), false, `${forbidden} should not be probed`);
   }
+  // The capacity probe shells out exactly once, to read a credential the user
+  // already holds. Anything else would make this more than a read-only board.
+  assert.deepEqual(aiUsage.match(/execFileAsync\(\s*"([a-z]+)"/g), ['execFileAsync(\n    "security"']);
   assert.equal(server.includes('req.method === "POST"'), false, "server should expose GET routes only");
   assert.equal(ui.includes('method: "POST"'), false, "UI should not call write endpoints");
   assert.deepEqual(Object.keys(packageJson.scripts), ["start", "test"]);
@@ -307,7 +326,248 @@ test("dashboard keeps work queues primary instead of rendering summary metrics",
   const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.equal(ui.includes('id="overview"'), false);
   assert.equal(ui.includes('class="metric'), false);
-  for (const queue of ["needs_you", "waiting", "reviews", "no_pr"]) {
+  for (const queue of ["needs_you", "waiting", "reviews", "no_pr", "shipping", "inbox"]) {
     assert.equal(ui.includes(`id="card-${queue}"`), true, `${queue} queue should remain visible`);
   }
+  // Sprint and capacity are a strip above the board, never a panel that
+  // displaces it.
+  assert.ok(ui.indexOf('class="instruments"') < ui.indexOf('class="board"'));
+});
+
+test("the theme toggle overrides the system scheme in both directions", () => {
+  const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  // One palette, resolved by color-scheme, so light and dark cannot drift apart.
+  assert.equal(ui.includes("prefers-color-scheme"), false);
+  assert.ok(ui.includes('--paper: light-dark('));
+  assert.ok(ui.includes(':root[data-theme="light"] { color-scheme: light; }'));
+  assert.ok(ui.includes(':root[data-theme="dark"] { color-scheme: dark; }'));
+  // The row-action defaults set opacity:0, so the toggle's override has to come
+  // after them or the control renders invisible.
+  assert.ok(ui.indexOf(".row:hover .act") < ui.indexOf(".theme-toggle {"));
+  // The stored choice is applied before the stylesheet, not after first paint.
+  assert.ok(ui.indexOf('localStorage.getItem("inflight-theme")') < ui.indexOf("<style>"));
+});
+
+test("reviewerWaits keeps only still-pending reviewers, newest request winning", () => {
+  const now = Date.parse("2026-09-11T00:00:00Z");
+  const waits = reviewerWaits(
+    [
+      { requestedReviewer: { login: "alice" } },
+      { requestedReviewer: { name: "platform-team" } },
+      { requestedReviewer: { login: "carol" } },
+    ],
+    [
+      { createdAt: "2026-09-01T00:00:00Z", requestedReviewer: { login: "alice" } },
+      // A re-request restarts alice's clock.
+      { createdAt: "2026-09-09T00:00:00Z", requestedReviewer: { login: "alice" } },
+      { createdAt: "2026-09-05T00:00:00Z", requestedReviewer: { name: "platform-team" } },
+      // bob reviewed and is no longer requested, so he never appears.
+      { createdAt: "2026-08-20T00:00:00Z", requestedReviewer: { login: "bob" } },
+    ],
+    now,
+  );
+  assert.deepEqual(
+    waits.map((entry) => [entry.login, entry.waitingDays]),
+    [["platform-team", 6], ["alice", 2], ["carol", null]],
+  );
+});
+
+test("awaitingReason names the longest-waiting reviewer and counts the rest", () => {
+  assert.equal(
+    awaitingReason({ ageDays: 9, pendingReviewers: [{ login: "alice", waitingDays: 4 }] }),
+    "awaiting @alice · 4d",
+  );
+  assert.equal(
+    awaitingReason({
+      ageDays: 9,
+      pendingReviewers: [{ login: "alice", waitingDays: 4 }, { login: "bob", waitingDays: 1 }],
+    }),
+    "awaiting @alice +1 · 4d",
+  );
+  // No reviewer, or a request older than the timeline window: fall back to age.
+  assert.equal(awaitingReason({ ageDays: 9, pendingReviewers: [] }), "awaiting review · 9d");
+  assert.equal(
+    awaitingReason({ ageDays: 9, pendingReviewers: [{ login: "alice", waitingDays: null }] }),
+    "awaiting review · 9d",
+  );
+});
+
+test("prNumbersInCommits reads squash-merge subjects", () => {
+  const numbers = prNumbersInCommits([
+    "PY-14338: Stop a non-finite numeric field value from breaking reads (#7502)",
+    "update plock (#7508)",
+    "Merge branch 'master' into thing",
+    null,
+  ]);
+  assert.deepEqual([...numbers].sort((a, b) => a - b), [7502, 7508]);
+});
+
+test("buildShipping lists merged work absent from the last release", () => {
+  const merged = [
+    { number: 7502, title: "PY-14338 Fix reads", url: "u1", repo: "o/PerformYard", mergedAt: "2026-09-10T20:00:00Z", headRefName: "PY-14338-fix" },
+    { number: 7400, title: "Already out", url: "u2", repo: "o/PerformYard", mergedAt: "2026-09-09T20:00:00Z", headRefName: "x" },
+    { number: 12, title: "Logan work", url: "u3", repo: "o/Logan", mergedAt: "2026-09-11T20:00:00Z", headRefName: "y" },
+  ];
+  const releases = new Map([
+    ["o/PerformYard", { tag: "v29.37.0", ahead: 1, truncated: false, numbers: new Set([7502]) }],
+    ["o/Logan", { error: "GitHub latest 404" }],
+  ]);
+  const shipping = buildShipping(merged, releases);
+  assert.deepEqual(shipping.items.map((item) => item.number), [7502]);
+  assert.equal(shipping.items[0].tag, "v29.37.0");
+  assert.equal(shipping.items[0].ticketKey, "PY-14338");
+  // A repo with no release is named, never silently counted as fully shipped.
+  assert.equal(shipping.note, "Logan: no release to compare");
+  assert.equal(buildShipping([], new Map()).note, null);
+});
+
+test("buildShipping flags a release gap too deep for the compare endpoint", () => {
+  const releases = new Map([["o/r", { tag: "v1", ahead: 400, truncated: true, numbers: new Set([5]) }]]);
+  const shipping = buildShipping(
+    [{ number: 5, title: "t", url: "u", repo: "o/r", mergedAt: "2026-09-10T00:00:00Z", headRefName: "b" }],
+    releases,
+  );
+  assert.equal(shipping.items.length, 1);
+  assert.equal(shipping.note, "r: 400+ commits unreleased");
+});
+
+test("activeSprintOf ignores closed sprints and sprints missing dates", () => {
+  const dated = { id: 9, state: "active", startDate: "2026-09-01T00:00:00Z", endDate: "2026-09-15T00:00:00Z" };
+  assert.equal(activeSprintOf([{ fields: { sprints: [] } }]), null);
+  assert.equal(activeSprintOf([{ fields: { sprints: [{ ...dated, id: 8, state: "closed" }] } }]), null);
+  assert.equal(activeSprintOf([{ fields: { sprints: [{ id: 9, state: "active" }] } }]), null);
+  assert.equal(activeSprintOf([{ fields: { sprints: [dated] } }])?.id, 9);
+});
+
+test("buildSprintPulse reads burn against the sprint clock", () => {
+  const sprint = { id: 9, name: "S2", state: "active", startDate: "2026-09-01T00:00:00Z", endDate: "2026-09-11T00:00:00Z" };
+  const issue = (key) => ({ fields: { sprints: [sprint], status: { statusCategory: { key } } } });
+  const pulse = buildSprintPulse(
+    [issue("done"), issue("done"), issue("indeterminate"), issue("new")],
+    Date.parse("2026-09-09T00:00:00Z"),
+  );
+  assert.equal(pulse.totalDays, 10);
+  assert.equal(pulse.elapsedDays, 8);
+  assert.equal(pulse.daysLeft, 2);
+  assert.equal(pulse.timePercent, 80);
+  assert.equal(pulse.donePercent, 50);
+  assert.deepEqual(pulse.counts, { total: 4, done: 2, inProgress: 1, todo: 1 });
+  // Tickets carried by another sprint never count toward this one's scope.
+  const other = { fields: { sprints: [{ ...sprint, id: 10 }], status: { statusCategory: { key: "done" } } } };
+  assert.equal(buildSprintPulse([issue("done"), other], Date.parse("2026-09-09T00:00:00Z")).counts.total, 1);
+});
+
+test("buildSprintPulse clamps a sprint that has run past its end date", () => {
+  const sprint = { id: 9, name: "S2", state: "active", startDate: "2026-09-01T00:00:00Z", endDate: "2026-09-11T00:00:00Z" };
+  const pulse = buildSprintPulse(
+    [{ fields: { sprints: [sprint], status: { statusCategory: { key: "done" } } } }],
+    Date.parse("2026-09-20T00:00:00Z"),
+  );
+  assert.equal(pulse.elapsedDays, 10);
+  assert.equal(pulse.daysLeft, 0);
+  assert.equal(pulse.timePercent, 100);
+});
+
+test("htmlUrlFor turns notification subjects into pages a human can open", () => {
+  assert.equal(
+    htmlUrlFor("https://api.github.com/repos/PerformYard/PerformYard/pulls/7516", "PerformYard/PerformYard"),
+    "https://github.com/PerformYard/PerformYard/pull/7516",
+  );
+  assert.equal(
+    htmlUrlFor("https://api.github.com/repos/o/r/issues/12", "o/r"),
+    "https://github.com/o/r/issues/12",
+  );
+  // Discussions and releases carry no mappable subject URL.
+  assert.equal(htmlUrlFor(null, "o/r"), "https://github.com/o/r");
+  assert.equal(htmlUrlFor(null, null), "https://github.com/notifications");
+});
+
+test("buildInbox drops what the board already shows and keeps the newest news", () => {
+  const note = (id, reason, updated) => ({
+    id,
+    reason,
+    updated_at: updated,
+    subject: { title: `t${id}`, url: `https://api.github.com/repos/o/r/pulls/${id}` },
+    repository: { full_name: "o/r" },
+  });
+  const inbox = buildInbox([
+    note(1, "author", "2026-09-10T00:00:00Z"),
+    note(2, "review_requested", "2026-09-10T00:00:00Z"),
+    note(3, "mention", "2026-09-08T00:00:00Z"),
+    note(4, "comment", "2026-09-09T00:00:00Z"),
+  ]);
+  assert.deepEqual(inbox.map((entry) => entry.id), ["gh-notification-4", "gh-notification-3"]);
+  assert.equal(inbox[0].reason, "comment");
+  assert.equal(inbox[0].url, "https://github.com/o/r/pull/4");
+});
+
+test("windowLabel reads rate-limit windows the way an operator states them", () => {
+  assert.equal(windowLabel(10080), "7d");
+  assert.equal(windowLabel(300), "5h");
+  assert.equal(windowLabel(45), "45m");
+  assert.equal(windowLabel(undefined), "window");
+});
+
+test("normalizeClaudeUsage prefers the limits array and hides unused scoped windows", () => {
+  const gauges = normalizeClaudeUsage({
+    limits: [
+      { kind: "session", percent: 31, resets_at: "2026-09-11T17:00:00Z", scope: null },
+      { kind: "weekly_all", percent: 0, resets_at: "2026-09-18T08:00:00Z", scope: null },
+      { kind: "weekly_scoped", percent: 0, resets_at: "2026-09-18T08:00:00Z", scope: { model: { display_name: "Fable" } } },
+      { kind: "weekly_scoped", percent: 12, resets_at: "2026-09-18T08:00:00Z", scope: { model: { display_name: "Opus" } } },
+    ],
+  });
+  assert.deepEqual(gauges.map((gauge) => gauge.label), ["5h", "7d", "7d Opus"]);
+  assert.equal(gauges[0].usedPercent, 31);
+});
+
+test("normalizeClaudeUsage falls back to the legacy top-level windows", () => {
+  const gauges = normalizeClaudeUsage({
+    five_hour: { utilization: 31.4, resets_at: "2026-09-11T17:00:00Z" },
+    seven_day: { utilization: 4, resets_at: "2026-09-18T08:00:00Z" },
+    seven_day_opus: null,
+  });
+  assert.deepEqual(gauges, [
+    { label: "5h", usedPercent: 31, resetsAt: "2026-09-11T17:00:00Z" },
+    { label: "7d", usedPercent: 4, resetsAt: "2026-09-18T08:00:00Z" },
+  ]);
+});
+
+test("normalizeCodexRateLimits reads the live app-server snapshot", () => {
+  const now = Date.parse("2026-09-11T00:00:00Z");
+  const gauges = normalizeCodexRateLimits(
+    {
+      primary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: 1_789_444_180 },
+      secondary: { usedPercent: 40, windowDurationMins: 300, resetsAt: 1_789_444_180 },
+    },
+    now,
+  );
+  assert.deepEqual(
+    gauges.map((entry) => [entry.label, entry.usedPercent]),
+    [["7d", 100], ["5h", 40]],
+  );
+});
+
+test("normalizeCodexRateLimits drops windows that have already rolled over", () => {
+  const now = Date.parse("2026-09-11T00:00:00Z");
+  const gauges = normalizeCodexRateLimits(
+    {
+      primary: { usedPercent: 82, windowDurationMins: 10080, resetsAt: 1_789_444_180 },
+      // Rolled over in 2001: whatever it says is spent no longer applies.
+      secondary: { usedPercent: 99, windowDurationMins: 300, resetsAt: 1_000_000_000 },
+    },
+    now,
+  );
+  assert.deepEqual(gauges.map((entry) => entry.label), ["7d"]);
+  assert.equal(normalizeCodexRateLimits({ primary: null, secondary: null }, now).length, 0);
+  assert.deepEqual(normalizeCodexRateLimits(null, now), []);
+});
+
+test("codexReachedNote explains a spent limit rather than leaving 100% bare", () => {
+  assert.equal(
+    codexReachedNote({ rateLimitReachedType: "workspace_member_credits_depleted" }),
+    "workspace member credits depleted",
+  );
+  assert.equal(codexReachedNote({ rateLimitReachedType: null }), null);
+  assert.equal(codexReachedNote(null), null);
 });
