@@ -23,7 +23,7 @@ import {
   prNumbersInCommits,
   buildShipping,
 } from "./lib/model.js";
-import { mapReviewPr } from "./lib/integrations.js";
+import { mapReviewPr, failureReason } from "./lib/integrations.js";
 import {
   windowLabel,
   normalizeClaudeUsage,
@@ -531,6 +531,26 @@ test("mapReviewPr exposes review context without deriving actions", () => {
   assert.equal(pr.qaGate, "blocked");
   assert.equal(pr.ageDays, 6);
   assert.equal("launch" in pr, false);
+});
+
+test("upstream failures report a reason, never a page of someone's HTML", async () => {
+  const body = (text) => ({ text: async () => text });
+  // A gateway 504 returns GitHub's error page, easter-egg comment and all.
+  assert.equal(
+    await failureReason(body("<!DOCTYPE html>\n<!-- Hello future GitHubber! I bet you're here")),
+    "",
+  );
+  assert.equal(await failureReason(body("  ")), "");
+  assert.equal(await failureReason(body('{"message":"Bad credentials"}')), ": Bad credentials");
+  // Jira reports its own way.
+  assert.equal(
+    await failureReason(body('{"errorMessages":["Field \'sprint\' does not exist"]}')),
+    ": Field 'sprint' does not exist",
+  );
+  // Short plain text is worth repeating as-is.
+  assert.equal(await failureReason(body("rate limit exceeded")), ": rate limit exceeded");
+  // A body that cannot even be read must not break the error path.
+  assert.equal(await failureReason({ text: async () => { throw new Error("aborted"); } }), "");
 });
 
 test("dashboard has no agent execution or external write endpoints", () => {

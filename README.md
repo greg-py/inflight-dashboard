@@ -97,6 +97,19 @@ The dashboard only reads. It does not launch coding agents, create worktrees, re
 CI, post reviews, update tickets, or otherwise act on the data it displays.
 Hide/restore is a local display preference stored in the browser.
 
+## Upstream calls
+
+GitHub allows a GraphQL request roughly ten seconds. Asking for every pull
+request's checks, threads and review timeline in one call sat right on that
+edge — slow on a good day and a 504 on a bad one — so the same work runs as
+parallel calls that each stay well inside the limit, joined by pull request
+number. Gateway failures are retried once (`upstreamRetries`) before anything
+reaches the banner, since they are nearly always momentary.
+
+A gateway failure returns an HTML error page rather than JSON. Banners report
+the status and, where the body actually says something, a short reason from it —
+never the page source.
+
 ## Capacity probes
 
 Each provider is probed independently and fails soft — one that is unreachable shows
