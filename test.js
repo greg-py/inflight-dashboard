@@ -10,8 +10,6 @@ import {
   sectionFor,
   statusRank,
   buildItems,
-  activeSprintOf,
-  buildSprintPulse,
   htmlUrlFor,
   buildInbox,
   reviewerWaits,
@@ -630,8 +628,8 @@ test("upstream failures report a reason, never a page of someone's HTML", async 
   assert.equal(await failureReason(body('{"message":"Bad credentials"}')), ": Bad credentials");
   // Jira reports its own way.
   assert.equal(
-    await failureReason(body('{"errorMessages":["Field \'sprint\' does not exist"]}')),
-    ": Field 'sprint' does not exist",
+    await failureReason(body('{"errorMessages":["Field \'assignee\' does not exist"]}')),
+    ": Field 'assignee' does not exist",
   );
   // Short plain text is worth repeating as-is.
   assert.equal(await failureReason(body("rate limit exceeded")), ": rate limit exceeded");
@@ -674,8 +672,7 @@ test("dashboard keeps work queues primary instead of rendering summary metrics",
   for (const queue of ["needs_you", "waiting", "reviews", "no_pr", "shipping", "inbox"]) {
     assert.equal(ui.includes(`id="card-${queue}"`), true, `${queue} queue should remain visible`);
   }
-  // Sprint and capacity are a strip above the board, never a panel that
-  // displaces it.
+  // Capacity is a strip above the board, never a panel that displaces it.
   assert.ok(ui.indexOf('class="instruments"') < ui.indexOf('class="board"'));
 });
 
@@ -806,43 +803,6 @@ test("buildShipping flags a release gap too deep for the compare endpoint", () =
   );
   assert.equal(shipping.items.length, 1);
   assert.equal(shipping.note, "r: 400+ commits unreleased");
-});
-
-test("activeSprintOf ignores closed sprints and sprints missing dates", () => {
-  const dated = { id: 9, state: "active", startDate: "2026-09-01T00:00:00Z", endDate: "2026-09-15T00:00:00Z" };
-  assert.equal(activeSprintOf([{ fields: { sprints: [] } }]), null);
-  assert.equal(activeSprintOf([{ fields: { sprints: [{ ...dated, id: 8, state: "closed" }] } }]), null);
-  assert.equal(activeSprintOf([{ fields: { sprints: [{ id: 9, state: "active" }] } }]), null);
-  assert.equal(activeSprintOf([{ fields: { sprints: [dated] } }])?.id, 9);
-});
-
-test("buildSprintPulse reads burn against the sprint clock", () => {
-  const sprint = { id: 9, name: "S2", state: "active", startDate: "2026-09-01T00:00:00Z", endDate: "2026-09-11T00:00:00Z" };
-  const issue = (key) => ({ fields: { sprints: [sprint], status: { statusCategory: { key } } } });
-  const pulse = buildSprintPulse(
-    [issue("done"), issue("done"), issue("indeterminate"), issue("new")],
-    Date.parse("2026-09-09T00:00:00Z"),
-  );
-  assert.equal(pulse.totalDays, 10);
-  assert.equal(pulse.elapsedDays, 8);
-  assert.equal(pulse.daysLeft, 2);
-  assert.equal(pulse.timePercent, 80);
-  assert.equal(pulse.donePercent, 50);
-  assert.deepEqual(pulse.counts, { total: 4, done: 2, inProgress: 1, todo: 1 });
-  // Tickets carried by another sprint never count toward this one's scope.
-  const other = { fields: { sprints: [{ ...sprint, id: 10 }], status: { statusCategory: { key: "done" } } } };
-  assert.equal(buildSprintPulse([issue("done"), other], Date.parse("2026-09-09T00:00:00Z")).counts.total, 1);
-});
-
-test("buildSprintPulse clamps a sprint that has run past its end date", () => {
-  const sprint = { id: 9, name: "S2", state: "active", startDate: "2026-09-01T00:00:00Z", endDate: "2026-09-11T00:00:00Z" };
-  const pulse = buildSprintPulse(
-    [{ fields: { sprints: [sprint], status: { statusCategory: { key: "done" } } } }],
-    Date.parse("2026-09-20T00:00:00Z"),
-  );
-  assert.equal(pulse.elapsedDays, 10);
-  assert.equal(pulse.daysLeft, 0);
-  assert.equal(pulse.timePercent, 100);
 });
 
 test("htmlUrlFor turns notification subjects into pages a human can open", () => {

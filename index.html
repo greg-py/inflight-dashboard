@@ -57,7 +57,7 @@
     border-bottom: 1px solid var(--ink);
   }
   .section-code, .count, .key, .chip, .reviewer, .sync-status,
-  .instrument-code, .instrument-note, .gauge-name, .gauge-pct, .gauge-reset, .sprint-figure small {
+  .instrument-code, .instrument-note, .gauge-name, .gauge-pct, .gauge-reset {
     font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   }
   .masthead h1 { margin: 0; font-size: clamp(36px, 4.8vw, 64px); line-height: .8; letter-spacing: -.055em; }
@@ -74,34 +74,21 @@
   #error { margin: 10px 0 0; padding-left: 10px; border-left: 4px solid var(--action); color: var(--action); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
 
   .instruments {
-    display: grid;
-    grid-template-columns: minmax(0, 13fr) minmax(360px, 8fr);
     margin-top: 22px;
     border-top: 3px solid var(--ink);
     border-bottom: 1px solid var(--rule-strong);
   }
-  .instrument { min-width: 0; padding: 11px 0 12px; }
-  .instrument:first-child { padding-right: 28px; }
-  .instrument:last-child { padding-left: 28px; border-left: 1px solid var(--ink); }
+  .instrument { padding: 11px 0 12px; }
   .instrument-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
   .instrument-code { color: var(--lane, var(--ink-2)); font-size: 9px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
   .instrument-note { overflow: hidden; color: var(--ink-3); font-size: 9px; letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
   .instrument-empty { color: var(--ink-3); font: italic 12px/1.5 "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
 
-  .meter { position: relative; height: 5px; border: 1px solid var(--rule); background: var(--wash); }
+  .meter { height: 5px; border: 1px solid var(--rule); background: var(--wash); }
   .meter-fill { height: 100%; background: var(--lane, var(--ink-2)); }
-  /* Where the sprint clock stands, against how much of the scope is closed. */
-  .meter-mark { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--ink); }
   .m-good { --lane: var(--good); }
   .m-warn { --lane: var(--waiting); }
   .m-bad { --lane: var(--action); }
-
-  #sprint-pulse { --lane: var(--development); }
-  .sprint-body { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto; align-items: center; gap: 16px; }
-  .sprint-figure { font-size: 21px; font-weight: 830; letter-spacing: -.035em; line-height: 1; white-space: nowrap; }
-  .sprint-figure small { display: block; margin-top: 4px; color: var(--ink-3); font-size: 8.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
-  .sprint-figure.align-right { text-align: right; }
-  .sprint-figure.behind { color: var(--waiting); }
 
   #capacity { --lane: var(--review); }
   .gauges { display: grid; grid-template-columns: auto minmax(44px, 1fr) auto auto; align-items: center; gap: 7px 10px; }
@@ -217,8 +204,6 @@
     main { padding: 18px 14px 44px; }
     .masthead { gap: 14px; padding-top: 10px; }
     .masthead h1 { font-size: 36px; }
-    .sprint-body { grid-template-columns: auto auto; justify-content: space-between; gap: 11px 16px; }
-    .sprint-track { grid-row: 2; grid-column: 1 / -1; }
     .gauges { grid-template-columns: auto minmax(34px, 1fr) auto; }
     /* Routine reset times are chatter at this width; an age warning is not. */
     .gauge-reset { display: none; }
@@ -245,8 +230,7 @@
   </header>
   <div id="banners"></div>
   <div id="error" hidden></div>
-  <section class="instruments" aria-label="Sprint burn and AI capacity">
-    <div class="instrument" id="sprint-pulse"></div>
+  <section class="instruments" aria-label="AI capacity">
     <div class="instrument" id="capacity"></div>
   </section>
   <div class="board">
@@ -275,8 +259,6 @@
   const BAD = ["changes requested", "CI failing", "conflicts with base"];
   const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · in QA", "approved · move to QA", "approved"];
   const STALE_REVIEW_DAYS = 3;
-  // Burn this far behind the sprint clock reads as at-risk.
-  const SPRINT_BEHIND_POINTS = 10;
 
   let lastData = null;
   let lastFetched = null;
@@ -383,30 +365,11 @@
   };
 
   const clampPct = (value) => Math.min(100, Math.max(0, Number(value) || 0));
-  const meter = (percent, cls, markPercent) =>
-    `<div class="meter ${cls}"><div class="meter-fill" style="width:${clampPct(percent)}%"></div>` +
-    `${Number.isFinite(markPercent) ? `<span class="meter-mark" style="left:${clampPct(markPercent)}%"></span>` : ""}</div>`;
+  const meter = (percent, cls) =>
+    `<div class="meter ${cls}"><div class="meter-fill" style="width:${clampPct(percent)}%"></div></div>`;
 
   const instrumentHead = (code, note) =>
     `<div class="instrument-head"><span class="instrument-code">${esc(code)}</span><span class="instrument-note">${esc(note)}</span></div>`;
-
-  const renderSprint = (sprint) => {
-    const el = document.getElementById("sprint-pulse");
-    const pulse = sprint?.pulse;
-    if (!pulse) {
-      el.innerHTML = instrumentHead("Sprint", "") +
-        `<div class="instrument-empty">${esc(sprint?.error ?? "no active sprint")}</div>`;
-      return;
-    }
-    const behind = pulse.timePercent - pulse.donePercent;
-    const cls = behind > SPRINT_BEHIND_POINTS * 2 ? "m-bad" : behind > SPRINT_BEHIND_POINTS ? "m-warn" : "m-good";
-    el.innerHTML = instrumentHead("Sprint", pulse.name) +
-      `<div class="sprint-body">
-        <div class="sprint-figure">${pulse.counts.done}<span style="color:var(--ink-3)">/${pulse.counts.total}</span><small>done · ${pulse.donePercent}%</small></div>
-        <div class="sprint-track" title="${pulse.donePercent}% of scope closed, ${pulse.timePercent}% of the sprint elapsed">${meter(pulse.donePercent, cls, pulse.timePercent)}</div>
-        <div class="sprint-figure align-right ${behind > SPRINT_BEHIND_POINTS ? "behind" : ""}">${pulse.daysLeft}d<small>left · day ${pulse.elapsedDays}/${pulse.totalDays}</small></div>
-      </div>`;
-  };
 
   const gaugeRows = (provider) =>
     provider.gauges
@@ -465,7 +428,6 @@
     document.getElementById("banners").innerHTML = banners.join("");
     document.getElementById("sync-dot").classList.toggle("warn", banners.length > 0);
 
-    renderSprint(data.sprint);
     renderCapacity(data.aiUsage);
 
     const inboxItems = data.inbox?.items ?? [];

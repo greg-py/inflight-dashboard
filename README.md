@@ -82,11 +82,8 @@ the development queue until they are marked ready.
 Within a section, work sorts closest-to-shipping first, so what is one action
 from done is never buried under what has barely started.
 
-Above the board sits a strip of two readings:
+Above the board sits one reading:
 
-- **Sprint** — how much of your sprint scope is closed against how much of the sprint
-  calendar is gone. The tick on the bar is the clock; the fill is the burn, so a fill
-  behind the tick is scope running behind time.
 - **Capacity** — how much of each coding agent's rate-limit window is spent, and when
   it rolls over.
 
@@ -168,7 +165,7 @@ unavailable.
 - `server.js` — read-only HTTP API and static UI server
 - `lib/config.js` — Jira/GitHub queries and display categorization settings
 - `lib/integrations.js` — Jira/GitHub fetchers and TTL cache
-- `lib/model.js` — pure joining, categorization, sorting, sprint and inbox logic
+- `lib/model.js` — pure joining, categorization, sorting, and inbox logic
 - `lib/ai-usage.js` — AI capacity probes and their pure normalizers
 - `index.html` — single-page dashboard UI
 - `test.js` — domain and integration-mapping tests
