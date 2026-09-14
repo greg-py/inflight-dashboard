@@ -55,6 +55,17 @@ so each one is classified before it is counted:
   forever is what makes a thread count worth ignoring.
 - **bot** — counted separately. Bots review every push, often after an approval,
   and their findings need their own triage.
+- **low** — a codex finding badged below P1. Codex stamps every finding with a
+  priority, as the alt text of a shields.io badge ahead of the title, and the
+  team triages P1 only; `codexActionablePriorities` holds the set that counts.
+  These drop out rather than falling through to **open**, so a pull request
+  whose only outstanding findings are P2 is nobody's move. The gate is keyed on
+  the bot that opened the thread: CodeQL, cursor and claude do not use the
+  priority scheme at all and are counted exactly as before. Two deliberate
+  escapes — a badge that does not parse reads as no badge and keeps the finding
+  (if the format moves, the board over-reports rather than going silent), and a
+  human reply makes the thread a person asking for something, classified on that
+  whatever codex badged it.
 - **open** — everything else, and the only kind that reaches a row.
 
 Threads survive approval. A reviewer who approves and leaves notes inline still

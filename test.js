@@ -18,6 +18,7 @@ import {
   awaitingReason,
   reReviewReason,
   commentLabel,
+  codexPriority,
   threadState,
   summarizeThreads,
   prNumbersInCommits,
@@ -201,6 +202,87 @@ test("threadState tells apart done, answered, praise and still-open", () => {
     threadState(thread({ firstComment: { body: "is this right?", login: "alice" } }), me),
     "open",
   );
+});
+
+// The shape codex actually posts: a shields.io badge whose alt text carries the
+// priority, ahead of the bolded title.
+const codexFinding = (priority, title) =>
+  `**<sub><sub>![${priority} Badge](https://img.shields.io/badge/${priority}-orange?style=flat)` +
+  `</sub></sub>  ${title}**\n\nBody of the finding.\n\nUseful? React with 👍 / 👎.`;
+
+const codexThread = (priority, overrides = {}) =>
+  thread({
+    firstComment: {
+      body: priority ? codexFinding(priority, "Keep unexpected tool calls scoreable") : "No badge here",
+      login: "chatgpt-codex-connector",
+      isBot: true,
+    },
+    lastComment: { login: "chatgpt-codex-connector", isBot: true, createdAt: "2026-09-11T10:00:00Z" },
+    ...overrides,
+  });
+
+test("codexPriority reads the badge codex actually posts", () => {
+  assert.equal(codexPriority(codexFinding("P1", "Keep judge failures out of model scores")), "P1");
+  assert.equal(codexPriority(codexFinding("P2", "Use monetary units for the revenue target")), "P2");
+  // Nothing to read is not a priority: an unbadged body keeps the finding.
+  assert.equal(codexPriority("**nitpick:** add JSDoc"), null);
+  assert.equal(codexPriority("## CodeQL / Database query built from user-controlled sources"), null);
+  // The word alone is not the badge — the marker is the image, not prose.
+  assert.equal(codexPriority("P2 badge stuff"), null);
+  assert.equal(codexPriority(null), null);
+});
+
+test("only P1 codex findings count; the rest are dropped, not left open", () => {
+  const me = "greg-py";
+  // The team triages P1 only, so a P2 finding nobody has touched stops counting
+  // entirely — it must not fall through to "open", which would cost more
+  // attention than reading it.
+  assert.equal(threadState(codexThread("P2"), me), "low");
+  assert.equal(threadState(codexThread("P3"), me), "low");
+  assert.equal(threadState(codexThread("P1"), me), "bot");
+  // Once a human replies, the thread is a person asking for something and is
+  // classified on that, whatever codex badged it.
+  assert.equal(
+    threadState(codexThread("P2", { lastComment: { login: "alice", isBot: false } }), me),
+    "open",
+  );
+  assert.equal(
+    threadState(codexThread("P2", { lastComment: { login: me, isBot: false } }), me),
+    "answered",
+  );
+  // A badge that does not parse reads as no badge and keeps the finding: if the
+  // format ever moves, the board over-reports rather than going silent.
+  assert.equal(threadState(codexThread(null), me), "bot");
+  // Bots that do not use the priority scheme at all are untouched by the gate.
+  for (const login of ["github-advanced-security", "cursor", "claude"]) {
+    assert.equal(
+      threadState(
+        thread({
+          firstComment: { body: "## CodeQL / SQL injection", login, isBot: true },
+          lastComment: { login, isBot: true, createdAt: "2026-09-11T10:00:00Z" },
+        }),
+        me,
+      ),
+      "bot",
+      login,
+    );
+  }
+});
+
+test("a pull request carrying only sub-P1 codex findings is nobody's move", () => {
+  const summary = summarizeThreads(
+    [codexThread("P2"), codexThread("P2"), codexThread("P3"), codexThread("P1")],
+    "greg-py",
+  );
+  assert.equal(summary.botThreads, 1, "only the P1 survives the count");
+  assert.equal(summary.openThreads, 0, "dropped findings never become open threads");
+
+  // The side effect that matters: the row stops claiming your attention.
+  const onlyP2 = summarizeThreads([codexThread("P2"), codexThread("P2")], "greg-py");
+  const pr = categorizePr({ ...basePr, ...onlyP2 });
+  assert.equal(pr.bucket, "waiting");
+  assert.equal(pr.defect, false);
+  assert.ok(!pr.reasons.some((reason) => /bot thread/.test(reason)));
 });
 
 test("summarizeThreads counts only what still wants something from you", () => {
@@ -507,7 +589,11 @@ test("mapReviewPr exposes review context without deriving actions", () => {
         reviewThread({ body: "**issue:** this leaks", first: "greg-py", last: "greg-py" }),
         reviewThread({ body: "_bug_ off by one", first: "greg-py", last: "greg-py", isResolved: true }),
         reviewThread({ body: "_praise_ tidy", first: "greg-py", last: "greg-py" }),
-        reviewThread({ body: "P2 badge stuff", first: "chatgpt-codex-connector", last: "chatgpt-codex-connector", bot: true }),
+        // Codex badges every finding; only P1 reaches the count.
+        reviewThread({ body: codexFinding("P1", "Keep judge failures out of scores"), first: "chatgpt-codex-connector", last: "chatgpt-codex-connector", bot: true }),
+        reviewThread({ body: codexFinding("P2", "Use monetary units for the target"), first: "chatgpt-codex-connector", last: "chatgpt-codex-connector", bot: true }),
+        // CodeQL does not badge priority at all, so the gate leaves it alone.
+        reviewThread({ body: "## CodeQL / SQL injection", first: "github-advanced-security", last: "github-advanced-security", bot: true }),
       ],
     },
     commits: {
@@ -527,7 +613,7 @@ test("mapReviewPr exposes review context without deriving actions", () => {
   assert.equal(pr.id, "PerformYard/PerformYard#7400");
   assert.equal(pr.ticketKey, "PY-14000");
   assert.equal(pr.openThreads, 1, "answered, resolved and praise threads all drop out");
-  assert.equal(pr.botThreads, 1, "bot threads counted separately");
+  assert.equal(pr.botThreads, 2, "the P1 and the unbadged CodeQL finding, not the P2");
   assert.equal(pr.qaGate, "blocked");
   assert.equal(pr.ageDays, 6);
   assert.equal("launch" in pr, false);
