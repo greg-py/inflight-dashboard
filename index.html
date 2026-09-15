@@ -74,11 +74,19 @@
   #error { margin: 10px 0 0; padding-left: 10px; border-left: 4px solid var(--action); color: var(--action); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
 
   .instruments {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
     margin-top: 22px;
     border-top: 3px solid var(--ink);
     border-bottom: 1px solid var(--rule-strong);
   }
   .instrument { padding: 11px 0 12px; }
+  .instrument:first-child { padding-right: 28px; }
+  .instrument + .instrument { padding-left: 28px; border-left: 1px solid var(--rule); }
+  .goalie { display: flex; align-items: baseline; gap: 9px; }
+  .goalie-name { color: var(--ink); font-size: 12.5px; font-weight: 680; letter-spacing: -.006em; }
+  .goalie-name.is-you { color: var(--action); font-weight: 750; }
+  .goalie-meta { color: var(--ink-3); font: 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; }
   .instrument-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
   .instrument-code { color: var(--lane, var(--ink-2)); font-size: 9px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
   .instrument-note { overflow: hidden; color: var(--ink-3); font-size: 9px; letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
@@ -110,6 +118,12 @@
   #card-reviews { --lane: var(--review); }
   #card-no_pr { --lane: var(--development); }
   #card-shipping { --lane: var(--good); }
+  #card-pod { --lane: var(--review); }
+  #card-held { --lane: var(--ink-3); }
+  #card-held .row { opacity: .62; }
+  #card-held .row:hover { opacity: 1; }
+  #card-pod { max-height: 560px; overflow-y: auto; scrollbar-color: var(--rule-strong) transparent; scrollbar-width: thin; }
+  #card-pod .section-head { position: sticky; top: 0; z-index: 1; background: var(--paper); }
 
   .section-head {
     display: grid;
@@ -141,6 +155,10 @@
   .row:hover::before { background: var(--lane); }
   .key { padding: 2px 0 0 11px; color: var(--ink-3); font-size: 10.5px; }
   .key a { color: var(--ink-2); font-weight: 650; }
+  /* Only urgent priorities are drawn. A board where every row carries a badge
+     ranks nothing. */
+  .prio { display: block; margin-top: 2px; color: var(--action); font: 750 8.5px/1.4 ui-monospace, "SFMono-Regular", monospace; letter-spacing: .06em; }
+  .owner { display: block; margin-top: 2px; color: var(--ink-3); font: 9px/1.4 ui-monospace, "SFMono-Regular", monospace; overflow: hidden; text-overflow: ellipsis; }
   .body { min-width: 0; }
   .summary { overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 630; letter-spacing: -.006em; text-overflow: ellipsis; white-space: nowrap; }
   .sub { color: var(--ink-3); font: 10px/1.4 ui-monospace, "SFMono-Regular", monospace; font-weight: 400; }
@@ -180,6 +198,11 @@
   /* Borrows the row-action look but is always live, so it must come after the
      .act defaults above. */
   .theme-toggle { opacity: 1; pointer-events: auto; letter-spacing: .06em; }
+  /* Sits inline on the row it belongs to rather than in the action column, so
+     a row with no honest next action loses nothing but the button. */
+  .act.copy { margin-left: 3px; color: var(--development); }
+  .act.copy::before { content: "⌘ "; }
+  .act.copy::after { content: ""; }
 
   .reviewer { overflow: hidden; padding-top: 2px; color: var(--review); font-size: 9.5px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
   .reviewer::before { content: "@"; color: var(--ink-3); }
@@ -230,8 +253,9 @@
   </header>
   <div id="banners"></div>
   <div id="error" hidden></div>
-  <section class="instruments" aria-label="AI capacity">
+  <section class="instruments" aria-label="AI capacity and bug rotation">
     <div class="instrument" id="capacity"></div>
+    <div class="instrument" id="goalie"></div>
   </section>
   <div class="board">
     <div class="board-column board-primary">
@@ -240,8 +264,10 @@
     </div>
     <aside class="board-column board-secondary" aria-label="Review and development queues">
       <section class="work-section" id="card-reviews"></section>
+      <section class="work-section" id="card-pod"></section>
       <section class="work-section" id="card-no_pr"></section>
       <section class="work-section" id="card-shipping"></section>
+      <section class="work-section" id="card-held"></section>
       <section class="work-section" id="card-inbox"></section>
       <section class="work-section" hidden id="card-hidden">
         <details class="folded" id="hidden-details"><summary id="hidden-summary">Hidden</summary><div id="hidden-list"></div></details>
@@ -254,11 +280,16 @@
   const SECTIONS = [
     { id: "needs_you", label: "Needs you", code: "01 / your move" },
     { id: "waiting", label: "Waiting on others", code: "02 / waiting" },
-    { id: "no_pr", label: "In development", code: "04 / building" },
+    { id: "no_pr", label: "In development", code: "05 / building" },
+    { id: "held", label: "Held", code: "07 / held" },
   ];
   const BAD = ["changes requested", "CI failing", "conflicts with base"];
   const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · in QA", "approved · move to QA", "approved"];
   const STALE_REVIEW_DAYS = 3;
+  // A QA queue is slower than a review queue, so it earns a longer fuse before
+  // the same amber.
+  const QA_WAITS = ["approved · awaiting QA", "approved · in QA"];
+  const QA_AGE_WARN_DAYS = 3;
 
   let lastData = null;
   let lastFetched = null;
@@ -313,33 +344,55 @@
     // "awaiting @alice +1 · 4d" and "re-review @bob · 4d" both carry a wait; a
     // pull request with nobody assigned is stalled at any age.
     const waiting = /^(awaiting|re-review|changes pushed)/.test(reason);
-    const age = waiting && reason.match(/· (\d+)d$/);
-    const cls = BAD.includes(reason) || /open thread/.test(reason) || /^CI stuck/.test(reason) ? "r-bad"
+    const age = reason.match(/· (\d+)d$/);
+    // A QA label carries its own clock now, so the settled-state lookup reads
+    // the label without it — otherwise "approved · in QA · 4d" matches nothing
+    // and merge-ready work renders as undifferentiated grey.
+    const base = age ? reason.slice(0, age.index).trim() : reason;
+    const stale = age && Number(age[1]) >= (QA_WAITS.includes(base) ? QA_AGE_WARN_DAYS : STALE_REVIEW_DAYS);
+    const cls = BAD.includes(base) || /open thread/.test(reason) || /^CI stuck/.test(reason) ? "r-bad"
       : /^no reviewer requested/.test(reason) || /bot thread/.test(reason) || /open follow-up/.test(reason)
-        || (age && Number(age[1]) >= STALE_REVIEW_DAYS) ? "r-warn"
-      : GOOD.includes(reason) ? "r-good" : "";
+        || /^blocked · behind/.test(reason) || /^stack root/.test(reason)
+        || ((waiting || QA_WAITS.includes(base)) && stale) ? "r-warn"
+      : GOOD.includes(base) ? "r-good" : "";
     return `<span class="signal ${cls}">${esc(reason)}</span>`;
   };
 
   const repoName = (repo) => String(repo ?? "").split("/").at(-1) || repo;
   const statusClass = (status) => `status-${String(status ?? "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
 
+  // The row's next action, ready to paste into Claude Code. The button says
+  // which skill it is rather than "copy", because the name is the thing worth
+  // knowing before you click.
+  const actionButton = (action) =>
+    action
+      ? ` <button type="button" class="act copy" data-copy="${esc(action.prompt)}" title="${esc(action.prompt)}" aria-label="copy prompt: ${esc(action.prompt)}">${esc(action.skill)}</button>`
+      : "";
+
   const prLine = (pr) =>
     `<div class="line"><a class="pr-link" href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(repoName(pr.repo))} #${pr.number}</a><span class="signals">${pr.reasons
       .map(reasonSpan)
-      .join("")}</span></div>`;
+      .join("")}</span>${actionButton(pr.action)}</div>`;
 
   const prRefs = (prs) => (prs ?? []).map((pr) => `<a href="${esc(pr.url)}" target="_blank" rel="noopener">#${pr.number}</a>`).join(", ");
 
   const workRow = (item, action) => {
     const key = item.key ? `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.key)}</a>` : "—";
-    const subtask = item.isSubtask && item.parentKey ? ` <span class="sub">· subtask of ${esc(item.parentKey)}</span>` : "";
+    const prio = item.urgent ? `<span class="prio">${esc(String(item.priority).split("-")[0])}</span>` : "";
+    // A subtask rides its parent's branch; a story names the epic it belongs
+    // to. Both were already fetched, and only the first was ever shown — which
+    // is what made twelve tickets of one effort read as twelve unrelated rows.
+    const subtask = item.parentKey
+      ? item.isSubtask
+        ? ` <span class="sub">· subtask of ${esc(item.parentKey)}</span>`
+        : ` <span class="sub">· ${esc(String(item.parentType ?? "parent").toLowerCase())} ${esc(item.parentKey)}</span>`
+      : "";
     const parentLinks = prRefs(item.parentPrs);
     const mergedLinks = prRefs(item.mergedPrs);
     const noPr = item.key && item.prs.length === 0
-      ? `<div class="line context-line">${parentLinks ? `on parent ${esc(item.parentKey)} · ${parentLinks}` : mergedLinks ? `PR ${mergedLinks} merged` : "no open PR"}</div>`
+      ? `<div class="line context-line">${parentLinks ? `on parent ${esc(item.parentKey)} · ${parentLinks}` : mergedLinks ? `PR ${mergedLinks} merged` : "no open PR"}${actionButton(item.action)}</div>`
       : "";
-    return `<div class="row"><span class="key">${key}</span>
+    return `<div class="row"><span class="key">${key}${prio}</span>
       <div class="body"><div class="summary" title="${esc(item.summary)}">${esc(item.summary)}${subtask}</div>
       ${item.prs.map(prLine).join("")}${noPr}</div>
       <span class="chip ${statusClass(item.status)}">${esc(item.status)}</span>
@@ -359,7 +412,7 @@
     ].filter(Boolean);
     return `<div class="row"><span class="key reviewer" title="${esc(pr.author)}">${esc(pr.author)}</span>
       <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
-      <div class="line review-meta">${details.join("")}</div></div>
+      <div class="line review-meta">${details.join("")}${actionButton(pr.action)}</div></div>
       <span class="chip">${esc(repoName(pr.repo))}</span>
       <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" aria-label="${action} review ${esc(pr.title)}">${action}</button></div>`;
   };
@@ -397,6 +450,45 @@
       (rows ? `<div class="gauges">${rows}</div>` : `<div class="instrument-empty">no providers reachable</div>`);
   };
 
+  // Pod flags carry their own clock rather than a settled-state label, so they
+  // are classified on age and severity instead of by lookup.
+  const POD_WARN_DAYS = 5;
+  const podFlagSpan = (flag) => {
+    const age = flag.match(/(\d+)d$/);
+    const cls = /^(held|blocked)/.test(flag) || /CI failing|conflicts with base/.test(flag) ? "r-bad"
+      : /no reviewer requested/.test(flag) || (age && Number(age[1]) >= POD_WARN_DAYS) ? "r-warn"
+      : "";
+    return `<span class="signal ${cls}">${esc(flag)}</span>`;
+  };
+
+  const podRow = (row, action) => {
+    const prio = row.urgent ? `<span class="prio">${esc(String(row.priority).split("-")[0])}</span>` : "";
+    const flags = row.flags.length
+      ? `<div class="line"><span class="signals">${row.flags.map(podFlagSpan).join("")}</span></div>`
+      : "";
+    const prs = row.prs
+      .map((pr) => `<div class="line"><a class="pr-link" href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(repoName(pr.repo))} #${pr.number}</a><span class="signals">${pr.flags.map(podFlagSpan).join("")}</span></div>`)
+      .join("");
+    return `<div class="row"><span class="key"><a href="${esc(row.url)}" target="_blank" rel="noopener">${esc(row.key)}</a>${prio}<span class="owner" title="${esc(row.assignee)}">${esc(row.assignee)}</span></span>
+      <div class="body"><div class="summary" title="${esc(row.summary)}">${esc(row.summary)}</div>${flags}${prs}</div>
+      <span class="chip ${statusClass(row.status)}">${esc(row.status)}</span>
+      <button type="button" class="act" data-action="${action}" data-id="${esc(row.id)}" aria-label="${action} ${esc(row.key)}">${action}</button></div>`;
+  };
+
+  const renderGoalie = (goalie) => {
+    const el = document.getElementById("goalie");
+    const head = instrumentHead("Bug goalie", "this week");
+    const rotation = goalie?.value;
+    if (!rotation) {
+      el.innerHTML = head + `<div class="instrument-empty">${esc(goalie?.error ?? "no rotation found")}</div>`;
+      return;
+    }
+    const days = ago(Date.parse(rotation.since));
+    el.innerHTML = head +
+      `<div class="goalie"><span class="goalie-name${rotation.isViewer ? " is-you" : ""}">${esc(rotation.name)}</span>` +
+      `<span class="goalie-meta">${rotation.bugs} bug${rotation.bugs === 1 ? "" : "s"} · ${esc(days)}</span></div>`;
+  };
+
   const shippingRow = (pr, action) =>
     `<div class="row"><span class="key">${pr.ticketKey ? `<a href="${esc(pr.ticketUrl)}" target="_blank" rel="noopener">${esc(pr.ticketKey)}</a>` : "—"}</span>
       <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
@@ -411,8 +503,34 @@
       <span class="chip">${esc(repoName(note.repo))}</span>
       <button type="button" class="act" data-action="${action}" data-id="${esc(note.id)}" aria-label="${action} ${esc(note.title)}">${action}</button></div>`;
 
-  const card = (el, code, label, rows, emptyText) => {
-    const count = `${rows.length} ${rows.length === 1 ? "item" : "items"}`;
+  // A stack is one piece of news, not eleven. Everything queued behind the same
+  // unmerged change folds into a single line that names the change to fix; the
+  // rows stay one click away.
+  const blockedRootOf = (item) => {
+    const blocked = item.prs.filter((pr) => pr.stack?.blockedBy);
+    return blocked.length > 0 && blocked.length === item.prs.length ? blocked[0].stack.blockedBy : null;
+  };
+
+  const sectionRows = (items, action) => {
+    const rows = [];
+    const stacks = new Map();
+    for (const item of items) {
+      const root = blockedRootOf(item);
+      if (root === null) rows.push(workRow(item, action));
+      else stacks.set(root, [...(stacks.get(root) ?? []), item]);
+    }
+    for (const [root, members] of stacks) {
+      rows.push(
+        `<details class="folded"><summary>Blocked behind #${root} · ${members.length} ${members.length === 1 ? "change" : "changes"}</summary>` +
+          members.map((item) => workRow(item, action)).join("") +
+          `</details>`,
+      );
+    }
+    return rows;
+  };
+
+  const card = (el, code, label, rows, emptyText, total = rows.length) => {
+    const count = `${total} ${total === 1 ? "item" : "items"}`;
     el.innerHTML = `<h2 class="section-head"><span class="section-code">${code}</span><span class="section-title">${label}</span><span class="count">${count}</span></h2>` +
       (rows.length ? rows.join("") : `<div class="empty">${emptyText}</div>`);
   };
@@ -429,21 +547,29 @@
     document.getElementById("sync-dot").classList.toggle("warn", banners.length > 0);
 
     renderCapacity(data.aiUsage);
+    renderGoalie(data.goalie);
 
+    const podItems = data.pod?.items ?? [];
     const inboxItems = data.inbox?.items ?? [];
     const shippingItems = data.shipping?.items ?? [];
     const visible = data.items.filter((item) => !hidden.has(item.id));
     const visibleReviews = data.reviewRequests.filter((pr) => !hidden.has(pr.id));
     const visibleInbox = inboxItems.filter((note) => !hidden.has(note.id));
     const visibleShipping = shippingItems.filter((pr) => !hidden.has(pr.id));
+    const visiblePod = podItems.filter((row) => !hidden.has(row.id));
     const counts = Object.fromEntries(SECTIONS.map((section) => [section.id, visible.filter((item) => item.section === section.id).length]));
     for (const section of SECTIONS) {
-      const rows = visible.filter((i) => i.section === section.id).map((i) => workRow(i, "hide"));
-      card(document.getElementById(`card-${section.id}`), section.code, section.label, rows, "nothing here");
+      const items = visible.filter((i) => i.section === section.id);
+      card(document.getElementById(`card-${section.id}`), section.code, section.label,
+        sectionRows(items, "hide"), "nothing here", items.length);
     }
 
+    card(document.getElementById("card-pod"), "04 / pod", data.pod?.name ?? "Pod",
+      visiblePod.map((row) => podRow(row, "hide")),
+      data.pod?.error ? esc(data.pod.error) : "pod work is moving");
+
     const shippingNote = data.shipping?.error ?? data.shipping?.note;
-    card(document.getElementById("card-shipping"), "05 / shipping", "Merged, not shipped",
+    card(document.getElementById("card-shipping"), "06 / shipping", "Merged, not shipped",
       visibleShipping.map((pr) => shippingRow(pr, "hide")),
       data.shipping?.error ? esc(data.shipping.error) : "everything merged is released");
     if (shippingNote && visibleShipping.length > 0) {
@@ -451,7 +577,7 @@
         "beforeend", `<div class="section-note">${esc(shippingNote)}</div>`);
     }
 
-    card(document.getElementById("card-inbox"), "06 / inbox", "GitHub inbox",
+    card(document.getElementById("card-inbox"), "08 / inbox", "GitHub inbox",
       visibleInbox.map((note) => notificationRow(note, "hide")),
       data.inbox?.error ? esc(data.inbox.error) : "inbox clear");
 
@@ -464,6 +590,7 @@
     const hiddenRows = [
       ...data.items.filter((item) => hidden.has(item.id)).map((item) => workRow(item, "restore")),
       ...data.reviewRequests.filter((pr) => hidden.has(pr.id)).map((pr) => reviewRow(pr, "restore")),
+      ...podItems.filter((row) => hidden.has(row.id)).map((row) => podRow(row, "restore")),
       ...shippingItems.filter((pr) => hidden.has(pr.id)).map((pr) => shippingRow(pr, "restore")),
       ...inboxItems.filter((note) => hidden.has(note.id)).map((note) => notificationRow(note, "restore")),
     ];
@@ -497,8 +624,29 @@
     applyTheme();
   });
 
-  document.querySelector("main").addEventListener("click", (event) => {
+  document.querySelector("main").addEventListener("click", async (event) => {
     const target = event.target;
+    // Copying is all this does: the prompt goes to the clipboard and the reader
+    // decides whether to run it. The board never runs anything itself.
+    if (target.dataset.copy !== undefined) {
+      const text = target.dataset.copy;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // clipboard permission varies by browser and origin; the selection
+        // fallback works everywhere this board is ever opened.
+        const area = document.createElement("textarea");
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        area.remove();
+      }
+      const original = target.textContent;
+      target.textContent = "copied";
+      setTimeout(() => { target.textContent = original; }, 1200);
+      return;
+    }
     if (!target.classList.contains("act")) return;
     const { action, id } = target.dataset;
     if (action === "hide") hidden.add(id);

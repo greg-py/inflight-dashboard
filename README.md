@@ -6,10 +6,16 @@ A local, read-only dashboard for ongoing work. It joins your assigned Jira ticke
 - work that needs your attention, including review feedback, CI failures, conflicts,
   merge-ready changes, and stalled CI;
 - work waiting on reviewers or QA;
+- your pod's work that has stopped moving, plus every ticket you are Engineering
+  Lead on but not assigned;
 - assigned tickets and subtasks that do not have an open pull request yet;
 - pull requests waiting for your review;
-- work you have merged that is not in the last release yet; and
+- work you have merged that is not in the last release yet;
+- work someone has deliberately frozen; and
 - unread GitHub notifications the board does not already show in full.
+
+Above the board sit two readings: how much of each coding agent's rate limit is
+spent, and who is holding the production bug pager this week.
 
 ## Signals
 
@@ -80,12 +86,76 @@ their real problems as signals but never become anyone's move, and they sit in
 the development queue until they are marked ready.
 
 Within a section, work sorts closest-to-shipping first, so what is one action
-from done is never buried under what has barely started.
+from done is never buried under what has barely started. Two things outrank
+that. An urgent priority — `urgentPriorities`, P1 and above — because a P1 that
+has barely started still beats a P3 one click from done; nothing below P1
+reorders anything, since a board where every row carries a badge ranks nothing.
+And the root of a blocked stack, because it is the single change that releases
+everything queued behind it.
 
-Above the board sits one reading:
+## Stacks
+
+A pull request opened against another open pull request's branch cannot merge
+until that one does, however green its own checks are. GitHub states the
+relationship only as a base branch name, so the chain is rebuilt by matching
+each base to the head it was opened from.
+
+The chain matters more than any single row. Eleven approved, green pull requests
+sitting on a twelfth that conflicts are not eleven pieces of good news, they are
+one merge conflict — so everything below the root reads `blocked · behind #7392`
+before anything else, and never claims to be ready for anything. The root states
+what is riding on it (`stack root · 11 behind`) and sorts to the top of its
+section. In the board, a whole blocked chain folds into one line naming the
+change to fix; the rows stay one click away.
+
+Waiting on the change underneath is position, not a defect — treating it as one
+would move every row of a stack into your move at once. A base whose pull
+request has already merged reads as unstacked rather than blocked forever, since
+GitHub retargets those to the default branch shortly.
+
+## Holds
+
+Work someone has deliberately frozen states it in the summary — `(HOLD MERGE)
+Remove the legacy navigation` — or carries one of `holdLabels`. A hold outranks
+every green signal underneath it: the row keeps its real signals but leaves your
+move for the held lane, because a frozen change reading `ready to merge` at the
+top of the board is the one error that costs more than showing nothing.
+
+## The pod
+
+The board's owner leads a pod, and an assignee-scoped board cannot see that.
+The pod lane adds only the exceptions — the handful of rows you would otherwise
+ask about at standup:
+
+- a ticket idle in an active status past `podIdleDays`;
+- one queued in QA past `podQaAgeDays`;
+- anything blocked or held;
+- a pull request with nobody requested to review it, unreviewed past
+  `podReviewIdleDays`, or sitting on changes-requested that long; and
+- every ticket you are **Engineering Lead** on but not assigned, which no
+  assignee-scoped query returns at all.
+
+Pod pull requests are found by ticket key rather than by a roster of GitHub
+logins, which drifts the moment someone joins the pod. Work that is moving earns
+no row: the lane is exceptions, not a second copy of the board.
+
+## How long, not just what
+
+`updated` moves on every comment, label and bulk grooming edit, so it cannot say
+how long something has sat in QA. The changelog can — the newest status
+transition is when the current status began. That is what turns
+`approved · awaiting QA` from a state into a decision: `approved · awaiting QA ·
+6d` is worth chasing, and the same label at `0d` is not. A QA queue is slower
+than a review queue, so it gets a longer fuse before the same amber.
+
+Above the board sit two readings:
 
 - **Capacity** — how much of each coding agent's rate-limit window is spent, and when
   it rolls over.
+- **Bug goalie** — who is holding the production bug pager this week, since when, and
+  how many bugs have landed on them. The rotation is announced by a bot in one Slack
+  channel and recorded nowhere else. It needs `SLACK_TOKEN`; without one the strip
+  says so and the rest of the board is unaffected.
 
 `[SYSTEM]` in the masthead cycles the theme to `[LIGHT]` or `[DARK]` and remembers
 the choice in the browser; `[SYSTEM]` follows the OS.
@@ -101,8 +171,38 @@ A repo with no releases has no answer to give, so it is named in a note under th
 section rather than being quietly counted as fully shipped. The same goes for a
 release gap deeper than the compare endpoint's 250-commit limit.
 
+## The next action
+
+A row that has one names its next action as a prompt, ready to paste into Claude
+Code. The button says which skill it is rather than "copy", because the name is
+the thing worth knowing before you click:
+
+| Row | Action |
+|---|---|
+| Review feedback outstanding — changes requested, open threads, or bot findings | `/address-review` |
+| Conflicts with its base | `/resolve-conflicts` |
+| Failing build | a prompt, since no skill covers this one |
+| Assigned ticket with no pull request | `/implement-ticket` |
+| A review someone asked of you | `/deep-review`, or `/verify-review` once you have reviewed it |
+
+Feedback outranks the rest: it is the only one of the three another person is
+waiting on, and answering it usually lands the commits that clear the others.
+
+Prompts are built only from validated pull request numbers and ticket keys,
+never from titles or branch names. The repo is always stated, because the skills
+default it to whatever repo the shell is sitting in and a prompt copied off this
+board gets pasted wherever the reader is, not where the work is.
+
+Silence is a real answer. Work that is waiting on a reviewer, queued for QA,
+merged and waiting on a release, held, or somebody else's on the pod lane offers
+nothing, because a wrong prompt costs more than an absent one. Held work offers
+nothing however actionable it looks — that is the same mistake as ranking it top
+of the board, one click further along. Drafts offer nothing either: a draft
+carries its problems as signals but never becomes anyone's move.
+
 The dashboard only reads. It does not launch coding agents, create worktrees, rerun
-CI, post reviews, update tickets, or otherwise act on the data it displays.
+CI, post reviews, update tickets, or otherwise act on the data it displays. Copying
+a prompt puts it on your clipboard and stops there — whether it runs is your call.
 Hide/restore is a local display preference stored in the browser.
 
 ## Upstream calls
@@ -147,6 +247,9 @@ To add a provider, add a probe to `PROVIDERS` in `lib/ai-usage.js` returning
 2. Create a Jira API token at
    <https://id.atlassian.com/manage-profile/security/api-tokens>.
 3. Copy `.env.example` to `.env` and fill in `JIRA_EMAIL` and `JIRA_API_TOKEN`.
+4. Optional, for the goalie strip only: create a Slack token with
+   `channels:history` on the goalie channel and set `SLACK_TOKEN` and
+   `SLACK_USER_ID`. Everything else works without it.
 
 ## Run
 
@@ -165,7 +268,7 @@ unavailable.
 - `server.js` — read-only HTTP API and static UI server
 - `lib/config.js` — Jira/GitHub queries and display categorization settings
 - `lib/integrations.js` — Jira/GitHub fetchers and TTL cache
-- `lib/model.js` — pure joining, categorization, sorting, and inbox logic
+- `lib/model.js` — pure joining, categorization, stacks, holds, pod watch, and inbox logic
 - `lib/ai-usage.js` — AI capacity probes and their pure normalizers
 - `index.html` — single-page dashboard UI
 - `test.js` — domain and integration-mapping tests

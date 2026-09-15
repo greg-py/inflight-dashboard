@@ -21,6 +21,18 @@ import {
   summarizeThreads,
   prNumbersInCommits,
   buildShipping,
+  buildStacks,
+  withStacks,
+  isHeld,
+  priorityKey,
+  isUrgent,
+  statusSince,
+  daysSince,
+  buildPodWatch,
+  buildGoalie,
+  promptForPr,
+  promptForReview,
+  promptForTicket,
 } from "./lib/model.js";
 import { mapReviewPr, failureReason } from "./lib/integrations.js";
 import {
@@ -702,6 +714,12 @@ test("every reason the model emits has a severity the UI can classify", () => {
   // Follow-ups on an approved PR are worth doing, but they are not blockers.
   assert.ok(ui.includes("/open follow-up/"));
   assert.ok(ui.includes("/open thread/"));
+  // Stack position is a warning, never a defect and never silence.
+  assert.ok(ui.includes("/^blocked · behind/"));
+  assert.ok(ui.includes("/^stack root/"));
+  // A QA label now carries its own clock, so the settled-state lookup has to
+  // read the label with the age stripped off.
+  assert.ok(ui.includes("QA_WAITS"));
 });
 
 test("the theme toggle overrides the system scheme in both directions", () => {
@@ -907,4 +925,332 @@ test("codexReachedNote explains a spent limit rather than leaving 100% bare", ()
   );
   assert.equal(codexReachedNote({ rateLimitReachedType: null }), null);
   assert.equal(codexReachedNote(null), null);
+});
+
+const stackPr = (number, head, base, extra = {}) => ({
+  number,
+  repo: "org/app",
+  url: `https://github.com/org/app/pull/${number}`,
+  headRefName: head,
+  baseRefName: base,
+  baseIsDefault: base === "master",
+  isDraft: false,
+  openThreads: 0,
+  botThreads: 0,
+  ci: "success",
+  mergeable: "MERGEABLE",
+  reviewDecision: "APPROVED",
+  qaGate: null,
+  pendingReviewers: [],
+  ageDays: 1,
+  ...extra,
+});
+
+test("a stack is rebuilt from base branches and every link names its root", () => {
+  const stacks = buildStacks([
+    stackPr(1, "a", "master"),
+    stackPr(2, "b", "a"),
+    stackPr(3, "c", "b"),
+    stackPr(9, "solo", "master"),
+  ]);
+  assert.deepEqual(
+    [...stacks].map(([number, stack]) => [number, stack.depth, stack.root, stack.behind]),
+    [[1, 0, 1, 2], [2, 1, 1, 0], [3, 2, 1, 0], [9, 0, 9, 0]],
+  );
+  // The root names what is riding on it; the links name what they wait for.
+  assert.equal(stacks.get(1).blockedBy, null);
+  assert.equal(stacks.get(3).blockedBy, 1);
+});
+
+test("a pull request stacked on an unmerged one never claims to be mergeable", () => {
+  const [root, child] = withStacks([stackPr(1, "a", "master"), stackPr(2, "b", "a")]);
+  // Identical review and CI state; only the base differs.
+  assert.ok(categorizePr(root).reasons.includes("approved · ready to merge"));
+  const blocked = categorizePr(child);
+  assert.equal(blocked.reasons.includes("approved · ready to merge"), false);
+  assert.deepEqual(blocked.reasons, ["blocked · behind #1", "approved", "CI green"]);
+  // Waiting on the change underneath is not a defect of this change, or every
+  // row of a stack would become your move at once.
+  assert.equal(blocked.defect, false);
+  assert.equal(blocked.bucket, "waiting");
+});
+
+test("the root of a blocked stack states how much is queued behind it", () => {
+  const [root] = withStacks([
+    stackPr(1, "a", "master", { mergeable: "CONFLICTING" }),
+    stackPr(2, "b", "a"),
+    stackPr(3, "c", "b"),
+  ]);
+  const { reasons, bucket, defect } = categorizePr(root);
+  assert.equal(reasons[0], "stack root · 2 behind");
+  assert.ok(reasons.includes("conflicts with base"));
+  // The conflict is the defect; being a root is only position.
+  assert.equal(defect, true);
+  assert.equal(bucket, "needs_you");
+});
+
+test("a base that is already merged reads as unstacked, not as blocked forever", () => {
+  // The parent pull request is gone from the open set; GitHub retargets these
+  // to the default branch shortly, and until it does "blocked by something
+  // already merged" would be a lie.
+  const stacks = buildStacks([stackPr(2, "b", "merged-parent")]);
+  assert.equal(stacks.get(2).blockedBy, null);
+  assert.equal(stacks.get(2).depth, 0);
+});
+
+test("a cycle in base branches terminates instead of hanging the board", () => {
+  const stacks = buildStacks([stackPr(1, "a", "b"), stackPr(2, "b", "a")]);
+  assert.equal(stacks.size, 2);
+  for (const stack of stacks.values()) assert.ok(Number.isFinite(stack.depth));
+});
+
+test("held work leaves your move however green it reads", () => {
+  const items = buildItems(
+    [
+      {
+        key: "PY-1",
+        fields: {
+          summary: "(HOLD MERGE) Remove the legacy navigation",
+          status: { name: "READY TO MERGE", statusCategory: { key: "indeterminate" } },
+          issuetype: { subtask: false },
+          updated: "2026-09-01T00:00:00Z",
+        },
+      },
+    ],
+    [{ ...stackPr(7209, "nav", "master"), qaGate: "passed", title: "PY-1 nav", ...categorizePr(stackPr(7209, "nav", "master")) }],
+  );
+  const held = items.find((item) => item.key === "PY-1");
+  assert.equal(held.section, "held");
+  // The signals stay honest — only the routing changes.
+  assert.ok(held.prs[0].reasons.includes("approved · ready to merge"));
+  assert.equal(isHeld({ summary: "(HOLD) SCIM failing" }), true);
+  assert.equal(isHeld({ summary: "Normal work", labels: ["on-hold"] }), true);
+  assert.equal(isHeld({ summary: "Withholding a value", labels: ["ai"] }), false);
+});
+
+test("only urgent priorities jump the queue, and they jump it whole", () => {
+  assert.equal(priorityKey("P1-High"), "p1");
+  assert.equal(priorityKey("p1 - high"), "p1");
+  assert.equal(isUrgent({ priority: "P1-High" }), true);
+  assert.equal(isUrgent({ priority: "P2-Medium" }), false);
+  const issue = (key, priority, status) => ({
+    key,
+    fields: {
+      summary: key,
+      priority: { name: priority },
+      status: { name: status, statusCategory: { key: "indeterminate" } },
+      issuetype: { subtask: false },
+      updated: "2026-09-01T00:00:00Z",
+    },
+  });
+  const items = buildItems(
+    [issue("PY-READY", "P3-Low", "READY TO MERGE"), issue("PY-URGENT", "P1-High", "In Progress")],
+    [],
+  );
+  // A P1 that has barely started outranks a P3 one click from done; nothing
+  // below P1 reorders anything.
+  assert.deepEqual(items.map((item) => item.key), ["PY-URGENT", "PY-READY"]);
+});
+
+test("status age is read from the changelog, not from the updated stamp", () => {
+  const changelog = {
+    histories: [
+      { created: "2026-09-01T00:00:00Z", items: [{ field: "status" }] },
+      { created: "2026-09-09T00:00:00Z", items: [{ field: "status" }] },
+      // A later comment must not be mistaken for a transition.
+      { created: "2026-09-14T00:00:00Z", items: [{ field: "Comment" }] },
+    ],
+  };
+  assert.equal(statusSince(changelog), "2026-09-09T00:00:00Z");
+  assert.equal(statusSince({ histories: [] }), null);
+  assert.equal(daysSince(null), null);
+  assert.equal(daysSince("2026-09-09T00:00:00Z", Date.parse("2026-09-15T00:00:00Z")), 6);
+});
+
+test("a QA wait states how long it has been queued", () => {
+  const pr = { ...stackPr(1, "a", "master"), title: "PY-2 thing" };
+  const items = buildItems(
+    [
+      {
+        key: "PY-2",
+        changelog: { histories: [{ created: "2026-09-09T00:00:00Z", items: [{ field: "status" }] }] },
+        fields: {
+          summary: "thing",
+          status: { name: "Ready To Test", statusCategory: { key: "indeterminate" } },
+          issuetype: { subtask: false },
+          updated: "2026-09-14T00:00:00Z",
+        },
+      },
+    ],
+    [{ ...pr, ...categorizePr(pr) }],
+  );
+  const label = items[0].prs[0].reasons.find((reason) => reason.startsWith("approved · awaiting QA"));
+  assert.match(label, /^approved · awaiting QA · \d+d$/);
+});
+
+test("the pod lane keeps only what has stopped moving, worst first", () => {
+  const issue = (key, status, assignee, since, extra = {}) => ({
+    key,
+    url: `https://jira/${key}`,
+    summary: key,
+    status,
+    assignee,
+    statusSince: since,
+    ...extra,
+  });
+  const now = Date.parse("2026-09-15T00:00:00Z");
+  const rows = buildPodWatch(
+    [
+      issue("PY-STUCK", "In Testing", "Marcus", "2026-08-06T00:00:00Z"),
+      issue("PY-FINE", "In Code Review", "Ari", "2026-09-14T00:00:00Z"),
+      issue("PY-URGENT", "In Progress", "James", "2026-09-10T00:00:00Z", { priority: "P1-High" }),
+    ],
+    [issue("PY-LEAD", "READY TO MERGE", "Paul", "2026-09-14T00:00:00Z")],
+    [],
+    now,
+  );
+  const keys = rows.map((row) => row.key);
+  // Work that is moving earns no row at all.
+  assert.equal(keys.includes("PY-FINE"), false);
+  // Urgent first, then stillest; a ticket you lead always appears.
+  assert.deepEqual(keys, ["PY-URGENT", "PY-STUCK", "PY-LEAD"]);
+  assert.ok(rows.find((row) => row.key === "PY-LEAD").flags.includes("you lead"));
+  assert.equal(rows.find((row) => row.key === "PY-STUCK").statusDays, 40);
+});
+
+test("a pod pull request nobody is reviewing earns its ticket a row", () => {
+  const now = Date.parse("2026-09-15T00:00:00Z");
+  const rows = buildPodWatch(
+    [{ key: "PY-9", url: "https://jira/PY-9", summary: "x", status: "In Code Review", assignee: "Ari", statusSince: "2026-09-14T00:00:00Z" }],
+    [],
+    [{ ...stackPr(50, "PY-9-x", "master"), title: "PY-9 x", reviewDecision: "REVIEW_REQUIRED", pendingReviewers: [], ageDays: 6, updatedAt: "2026-09-14T00:00:00Z" }],
+    now,
+  );
+  assert.deepEqual(rows[0].prs[0].flags, ["no reviewer requested · 6d"]);
+  // A pull request carrying no pod ticket key is not the pod's problem.
+  assert.equal(buildPodWatch([], [], [{ ...stackPr(51, "chore", "master"), title: "chore" }], now).length, 0);
+});
+
+test("the goalie rotation is read from the announcement that starts it", () => {
+  const messages = [
+    { ts: "1000", text: "Bug reported in the domain `AI` and assigned to <@U1|Greg King>. Ticket: PY-1" },
+    { ts: "900", text: "Street Sharks goalie change. Last week's goalie was <@U2|Paul>, and this week's goalie is <@U1|Greg King>." },
+    // Before the rotation started, so not this goalie's load.
+    { ts: "800", text: "Bug reported in the domain `AI` and assigned to <@U2|Paul>. Ticket: PY-0" },
+  ];
+  const goalie = buildGoalie(messages, "U1");
+  assert.equal(goalie.name, "Greg King");
+  assert.equal(goalie.isViewer, true);
+  assert.equal(goalie.bugs, 1);
+  assert.equal(buildGoalie([], "U1"), null);
+});
+
+test("each pull request defect routes to the skill that addresses it", () => {
+  const pr = (extra) => ({ number: 7486, repo: "PerformYard/PerformYard", openThreads: 0, botThreads: 0, ci: "success", mergeable: "MERGEABLE", ...extra });
+  // Feedback outranks the rest: it is the one another person is waiting on.
+  assert.deepEqual(promptForPr(pr({ reviewDecision: "CHANGES_REQUESTED", mergeable: "CONFLICTING", ci: "failure" })), {
+    skill: "address-review",
+    prompt: "/address-review 7486 --repo PerformYard/PerformYard",
+  });
+  assert.deepEqual(promptForPr(pr({ openThreads: 3 })).skill, "address-review");
+  // Bot findings are still feedback, and they survive an approval.
+  assert.equal(promptForPr(pr({ reviewDecision: "APPROVED", botThreads: 2 })).skill, "address-review");
+  assert.deepEqual(promptForPr(pr({ mergeable: "CONFLICTING" })), {
+    skill: "resolve-conflicts",
+    prompt: "/resolve-conflicts 7486 --repo PerformYard/PerformYard",
+  });
+  // A clean, approved pull request has no next action of yours to offer.
+  assert.equal(promptForPr(pr({ reviewDecision: "APPROVED" })), null);
+  assert.equal(promptForPr({ number: null, repo: "x" }), null);
+  // A draft carries its problems as signals and never becomes anyone's move,
+  // so a parked prototype drifting into conflict is not offered as work.
+  assert.equal(promptForPr(pr({ isDraft: true, mergeable: "CONFLICTING", ci: "failure" })), null);
+  // A review someone asked for is still a review, draft or not.
+  assert.equal(promptForReview({ number: 704, repo: "PerformYard/QA", isDraft: true }).skill, "deep-review");
+});
+
+test("feedback already answered by a push is not re-offered as work", () => {
+  const answered = {
+    number: 7486,
+    repo: "PerformYard/PerformYard",
+    reviewDecision: "CHANGES_REQUESTED",
+    changesRequestedAt: "2026-09-10T00:00:00Z",
+    lastCommitAt: "2026-09-12T00:00:00Z",
+    openThreads: 0,
+    botThreads: 0,
+    ci: "success",
+    mergeable: "MERGEABLE",
+  };
+  assert.equal(changesAddressed(answered), true);
+  assert.equal(promptForPr(answered), null);
+});
+
+test("a failing build has no skill, so the prompt carries what one would", () => {
+  const action = promptForPr({ number: 7486, repo: "PerformYard/PerformYard", openThreads: 0, botThreads: 0, ci: "failure", mergeable: "MERGEABLE" });
+  assert.equal(action.skill, "fix CI");
+  assert.match(action.prompt, /PR 7486 in PerformYard\/PerformYard/);
+  assert.match(action.prompt, /gh run view --log-failed/);
+  // The gate that waits on a person is named so it is not chased as a defect.
+  assert.match(action.prompt, /QA Code Review/);
+});
+
+test("a review you have already given is a second pass, not a first", () => {
+  const pr = { number: 7500, repo: "PerformYard/QA" };
+  assert.deepEqual(promptForReview(pr), {
+    skill: "deep-review",
+    prompt: "/deep-review 7500 --repo PerformYard/QA",
+  });
+  assert.equal(promptForReview({ ...pr, viewerReviewState: "CHANGES_REQUESTED" }).skill, "verify-review");
+});
+
+test("a ticket with no pull request is the one that wants implementing", () => {
+  assert.deepEqual(promptForTicket({ key: "PY-14135", prs: [] }), {
+    skill: "implement-ticket",
+    prompt: "/implement-ticket PY-14135 --repo PerformYard/PerformYard",
+  });
+  // A subtask rides its parent's branch, so the parent's repo is the target.
+  assert.match(
+    promptForTicket({ key: "PY-1", prs: [], parentPrs: [{ repo: "PerformYard/Logan" }] }).prompt,
+    /--repo PerformYard\/Logan$/,
+  );
+  // Work already underway, or merged and waiting on a release, is not waiting
+  // to be implemented.
+  assert.equal(promptForTicket({ key: "PY-1", prs: [{ number: 1 }] }), null);
+  assert.equal(promptForTicket({ key: "PY-1", prs: [], mergedPrs: [{ number: 1 }] }), null);
+  // An orphan pull request row has no ticket key to implement.
+  assert.equal(promptForTicket({ key: null, prs: [] }), null);
+});
+
+test("held work offers no action, however actionable it looks", () => {
+  const pr = { number: 7209, repo: "PerformYard/PerformYard", headRefName: "nav", baseRefName: "master", baseIsDefault: true, title: "PY-1 nav", openThreads: 2, botThreads: 0, ci: "success", mergeable: "MERGEABLE", isDraft: false, reviewDecision: "APPROVED", pendingReviewers: [], ageDays: 3 };
+  const items = buildItems(
+    [
+      {
+        key: "PY-1",
+        fields: {
+          summary: "(HOLD MERGE) Remove the legacy navigation",
+          status: { name: "READY TO MERGE", statusCategory: { key: "indeterminate" } },
+          issuetype: { subtask: false },
+          updated: "2026-09-01T00:00:00Z",
+        },
+      },
+    ],
+    [{ ...pr, ...categorizePr(pr), action: promptForPr(pr) }],
+  );
+  const held = items.find((item) => item.key === "PY-1");
+  assert.equal(held.section, "held");
+  assert.equal(held.action, null);
+  // The pull request would otherwise route to address-review on its open threads.
+  assert.equal(promptForPr(pr).skill, "address-review");
+  assert.equal(held.prs[0].action, null);
+});
+
+test("copying a prompt is the only thing the button does", () => {
+  const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  // No fetch, no endpoint, no agent — the reader decides whether to run it.
+  assert.ok(ui.includes("navigator.clipboard.writeText"));
+  assert.equal(/data-copy[\s\S]{0,400}fetch\(/.test(ui), false);
+  for (const forbidden of ["/api/launch", "startSession", "data-agent"]) {
+    assert.equal(ui.includes(forbidden), false, `${forbidden} should not have returned`);
+  }
 });

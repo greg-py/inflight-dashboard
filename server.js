@@ -16,6 +16,8 @@ const buildSnapshot = async () => {
     inbox: upstream.inbox,
     shipping: upstream.shipping,
     aiUsage: upstream.aiUsage,
+    pod: upstream.pod,
+    goalie: upstream.goalie,
   };
 };
 
