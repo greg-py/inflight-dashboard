@@ -139,6 +139,13 @@ Pod pull requests are found by ticket key rather than by a roster of GitHub
 logins, which drifts the moment someone joins the pod. Work that is moving earns
 no row: the lane is exceptions, not a second copy of the board.
 
+The lane reports no CI state, and the omission is deliberate. Reading it means
+asking GitHub for every check context on fifty pull requests across the org,
+which took ~11s — past the limit, where GitHub answers `200` and then truncates
+the body, surfacing as `Unexpected end of JSON input`. Its own field set,
+without the check rollup, runs in ~2s. A red build on a teammate's pull request
+is theirs to see; this lane is for work that has stopped moving.
+
 ## How long, not just what
 
 `updated` moves on every comment, label and bulk grooming edit, so it cannot say
@@ -259,9 +266,10 @@ npm start
 
 Open <http://localhost:4477>, and press Ctrl-C in the terminal when you are done.
 
-The browser refreshes every three minutes. Jira and GitHub responses are cached for two
-minutes, and the last good response remains visible if either service is temporarily
-unavailable.
+The browser refreshes every five minutes, and Jira and GitHub responses are cached for
+the same five, so a tab reloading on schedule gets fresh data rather than the tail of
+the previous window. The last good response remains visible if either service is
+temporarily unavailable.
 
 ## Layout
 

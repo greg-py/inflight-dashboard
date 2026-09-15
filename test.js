@@ -35,6 +35,7 @@ import {
   promptForTicket,
 } from "./lib/model.js";
 import { mapReviewPr, failureReason } from "./lib/integrations.js";
+import { CONFIG } from "./lib/config.js";
 import {
   windowLabel,
   normalizeClaudeUsage,
@@ -1253,4 +1254,58 @@ test("copying a prompt is the only thing the button does", () => {
   for (const forbidden of ["/api/launch", "startSession", "data-agent"]) {
     assert.equal(ui.includes(forbidden), false, `${forbidden} should not have returned`);
   }
+});
+
+test("the pod search never asks for the field that timed it out", () => {
+  const integrations = readFileSync(new URL("./lib/integrations.js", import.meta.url), "utf8");
+  const podFields = integrations.match(/const POD_FIELDS = `([\s\S]*?)`;/)[1];
+  // Every check context on fifty org pull requests took ~11s — past GitHub's
+  // limit, which answers 200 and then truncates the body. The pod lane reads
+  // no CI state, so it must not pay for one.
+  assert.equal(podFields.includes("statusCheckRollup"), false);
+  assert.equal(podFields.includes("${CORE_FIELDS}"), false);
+  assert.equal(podFields.includes("reviewThreads"), false);
+  // What the pod flags actually read has to survive.
+  for (const field of ["isDraft", "mergeable", "reviewDecision", "createdAt", "updatedAt", "reviewRequests"]) {
+    assert.ok(podFields.includes(field), `POD_FIELDS lost ${field}`);
+  }
+});
+
+test("a pod pull request reports staleness, not build state", () => {
+  const now = Date.parse("2026-09-15T00:00:00Z");
+  const rows = buildPodWatch(
+    [{ key: "PY-9", url: "https://jira/PY-9", summary: "x", status: "In Code Review", assignee: "Ari", statusSince: "2026-09-14T00:00:00Z" }],
+    [],
+    // No `ci` field at all now, which is what the lighter query returns.
+    [{ number: 50, repo: "org/app", url: "u", title: "PY-9 x", headRefName: "PY-9-x", isDraft: false, mergeable: "CONFLICTING", reviewDecision: "REVIEW_REQUIRED", pendingReviewers: [], ageDays: 6, updatedAt: "2026-09-14T00:00:00Z" }],
+    now,
+  );
+  assert.deepEqual(rows[0].prs[0].flags, ["conflicts with base", "no reviewer requested · 6d"]);
+});
+
+test("a truncated GraphQL body is named and retried, not parroted", async () => {
+  const integrations = readFileSync(new URL("./lib/integrations.js", import.meta.url), "utf8");
+  // Scoped to the GraphQL path: the Jira and Slack fetchers read small bodies
+  // and res.json() is right for them.
+  const graphqlFn = integrations.slice(
+    integrations.indexOf("const graphql = async"),
+    integrations.indexOf("const CORE_FIELDS"),
+  );
+  // res.json() on a cut-off body throws "Unexpected end of JSON input", which
+  // names the symptom, hides the cause, and hides that it is transient.
+  assert.equal(graphqlFn.includes("await res.json()"), false);
+  assert.ok(graphqlFn.includes("JSON.parse(body)"));
+  assert.ok(graphqlFn.includes("truncated response"));
+  // It retries on the same budget as a gateway blip rather than banner-ing.
+  assert.match(integrations, /catch \{\s*if \(attempt <= CONFIG\.upstreamRetries\)/);
+});
+
+test("the browser and the cache agree on how often to refresh", () => {
+  const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const refreshMs = Number(ui.match(/const REFRESH_MS = ([\d_]+);/)[1].replace(/_/g, ""));
+  // A tab reloading on a shorter clock than the cache only ever re-renders the
+  // tail of the previous window.
+  assert.equal(refreshMs, 300_000);
+  assert.equal(CONFIG.upstreamTtlMs, 300_000);
+  assert.equal(refreshMs, CONFIG.upstreamTtlMs);
 });
