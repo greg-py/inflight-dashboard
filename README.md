@@ -6,8 +6,6 @@ A local, read-only dashboard for ongoing work. It joins your assigned Jira ticke
 - work that needs your attention, including review feedback, CI failures, conflicts,
   merge-ready changes, and stalled CI;
 - work waiting on reviewers or QA;
-- your pod's work that has stopped moving, plus every ticket you are Engineering
-  Lead on but not assigned;
 - assigned tickets and subtasks that do not have an open pull request yet;
 - pull requests waiting for your review;
 - work you have merged that is not in the last release yet;
@@ -121,31 +119,6 @@ every green signal underneath it: the row keeps its real signals but leaves your
 move for the held lane, because a frozen change reading `ready to merge` at the
 top of the board is the one error that costs more than showing nothing.
 
-## The pod
-
-The board's owner leads a pod, and an assignee-scoped board cannot see that.
-The pod lane adds only the exceptions — the handful of rows you would otherwise
-ask about at standup:
-
-- a ticket idle in an active status past `podIdleDays`;
-- one queued in QA past `podQaAgeDays`;
-- anything blocked or held;
-- a pull request with nobody requested to review it, unreviewed past
-  `podReviewIdleDays`, or sitting on changes-requested that long; and
-- every ticket you are **Engineering Lead** on but not assigned, which no
-  assignee-scoped query returns at all.
-
-Pod pull requests are found by ticket key rather than by a roster of GitHub
-logins, which drifts the moment someone joins the pod. Work that is moving earns
-no row: the lane is exceptions, not a second copy of the board.
-
-The lane reports no CI state, and the omission is deliberate. Reading it means
-asking GitHub for every check context on fifty pull requests across the org,
-which took ~11s — past the limit, where GitHub answers `200` and then truncates
-the body, surfacing as `Unexpected end of JSON input`. Its own field set,
-without the check rollup, runs in ~2s. A red build on a teammate's pull request
-is theirs to see; this lane is for work that has stopped moving.
-
 ## How long, not just what
 
 `updated` moves on every comment, label and bulk grooming edit, so it cannot say
@@ -201,8 +174,8 @@ default it to whatever repo the shell is sitting in and a prompt copied off this
 board gets pasted wherever the reader is, not where the work is.
 
 Silence is a real answer. Work that is waiting on a reviewer, queued for QA,
-merged and waiting on a release, held, or somebody else's on the pod lane offers
-nothing, because a wrong prompt costs more than an absent one. Held work offers
+merged and waiting on a release, or held offers nothing, because a wrong prompt
+costs more than an absent one. Held work offers
 nothing however actionable it looks — that is the same mistake as ranking it top
 of the board, one click further along. Drafts offer nothing either: a draft
 carries its problems as signals but never becomes anyone's move.
@@ -276,7 +249,7 @@ temporarily unavailable.
 - `server.js` — read-only HTTP API and static UI server
 - `lib/config.js` — Jira/GitHub queries and display categorization settings
 - `lib/integrations.js` — Jira/GitHub fetchers and TTL cache
-- `lib/model.js` — pure joining, categorization, stacks, holds, pod watch, and inbox logic
+- `lib/model.js` — pure joining, categorization, stacks, holds, and inbox logic
 - `lib/ai-usage.js` — AI capacity probes and their pure normalizers
 - `index.html` — single-page dashboard UI
 - `test.js` — domain and integration-mapping tests

@@ -28,7 +28,6 @@ import {
   isUrgent,
   statusSince,
   daysSince,
-  buildPodWatch,
   buildGoalie,
   promptForPr,
   promptForReview,
@@ -1089,53 +1088,10 @@ test("a QA wait states how long it has been queued", () => {
   assert.match(label, /^approved · awaiting QA · \d+d$/);
 });
 
-test("the pod lane keeps only what has stopped moving, worst first", () => {
-  const issue = (key, status, assignee, since, extra = {}) => ({
-    key,
-    url: `https://jira/${key}`,
-    summary: key,
-    status,
-    assignee,
-    statusSince: since,
-    ...extra,
-  });
-  const now = Date.parse("2026-09-15T00:00:00Z");
-  const rows = buildPodWatch(
-    [
-      issue("PY-STUCK", "In Testing", "Marcus", "2026-08-06T00:00:00Z"),
-      issue("PY-FINE", "In Code Review", "Ari", "2026-09-14T00:00:00Z"),
-      issue("PY-URGENT", "In Progress", "James", "2026-09-10T00:00:00Z", { priority: "P1-High" }),
-    ],
-    [issue("PY-LEAD", "READY TO MERGE", "Paul", "2026-09-14T00:00:00Z")],
-    [],
-    now,
-  );
-  const keys = rows.map((row) => row.key);
-  // Work that is moving earns no row at all.
-  assert.equal(keys.includes("PY-FINE"), false);
-  // Urgent first, then stillest; a ticket you lead always appears.
-  assert.deepEqual(keys, ["PY-URGENT", "PY-STUCK", "PY-LEAD"]);
-  assert.ok(rows.find((row) => row.key === "PY-LEAD").flags.includes("you lead"));
-  assert.equal(rows.find((row) => row.key === "PY-STUCK").statusDays, 40);
-});
-
-test("a pod pull request nobody is reviewing earns its ticket a row", () => {
-  const now = Date.parse("2026-09-15T00:00:00Z");
-  const rows = buildPodWatch(
-    [{ key: "PY-9", url: "https://jira/PY-9", summary: "x", status: "In Code Review", assignee: "Ari", statusSince: "2026-09-14T00:00:00Z" }],
-    [],
-    [{ ...stackPr(50, "PY-9-x", "master"), title: "PY-9 x", reviewDecision: "REVIEW_REQUIRED", pendingReviewers: [], ageDays: 6, updatedAt: "2026-09-14T00:00:00Z" }],
-    now,
-  );
-  assert.deepEqual(rows[0].prs[0].flags, ["no reviewer requested · 6d"]);
-  // A pull request carrying no pod ticket key is not the pod's problem.
-  assert.equal(buildPodWatch([], [], [{ ...stackPr(51, "chore", "master"), title: "chore" }], now).length, 0);
-});
-
 test("the goalie rotation is read from the announcement that starts it", () => {
   const messages = [
     { ts: "1000", text: "Bug reported in the domain `AI` and assigned to <@U1|Greg King>. Ticket: PY-1" },
-    { ts: "900", text: "Street Sharks goalie change. Last week's goalie was <@U2|Paul>, and this week's goalie is <@U1|Greg King>." },
+    { ts: "900", text: "Weekly goalie change. Last week's goalie was <@U2|Paul>, and this week's goalie is <@U1|Greg King>." },
     // Before the rotation started, so not this goalie's load.
     { ts: "800", text: "Bug reported in the domain `AI` and assigned to <@U2|Paul>. Ticket: PY-0" },
   ];
@@ -1254,33 +1210,6 @@ test("copying a prompt is the only thing the button does", () => {
   for (const forbidden of ["/api/launch", "startSession", "data-agent"]) {
     assert.equal(ui.includes(forbidden), false, `${forbidden} should not have returned`);
   }
-});
-
-test("the pod search never asks for the field that timed it out", () => {
-  const integrations = readFileSync(new URL("./lib/integrations.js", import.meta.url), "utf8");
-  const podFields = integrations.match(/const POD_FIELDS = `([\s\S]*?)`;/)[1];
-  // Every check context on fifty org pull requests took ~11s — past GitHub's
-  // limit, which answers 200 and then truncates the body. The pod lane reads
-  // no CI state, so it must not pay for one.
-  assert.equal(podFields.includes("statusCheckRollup"), false);
-  assert.equal(podFields.includes("${CORE_FIELDS}"), false);
-  assert.equal(podFields.includes("reviewThreads"), false);
-  // What the pod flags actually read has to survive.
-  for (const field of ["isDraft", "mergeable", "reviewDecision", "createdAt", "updatedAt", "reviewRequests"]) {
-    assert.ok(podFields.includes(field), `POD_FIELDS lost ${field}`);
-  }
-});
-
-test("a pod pull request reports staleness, not build state", () => {
-  const now = Date.parse("2026-09-15T00:00:00Z");
-  const rows = buildPodWatch(
-    [{ key: "PY-9", url: "https://jira/PY-9", summary: "x", status: "In Code Review", assignee: "Ari", statusSince: "2026-09-14T00:00:00Z" }],
-    [],
-    // No `ci` field at all now, which is what the lighter query returns.
-    [{ number: 50, repo: "org/app", url: "u", title: "PY-9 x", headRefName: "PY-9-x", isDraft: false, mergeable: "CONFLICTING", reviewDecision: "REVIEW_REQUIRED", pendingReviewers: [], ageDays: 6, updatedAt: "2026-09-14T00:00:00Z" }],
-    now,
-  );
-  assert.deepEqual(rows[0].prs[0].flags, ["conflicts with base", "no reviewer requested · 6d"]);
 });
 
 test("a truncated GraphQL body is named and retried, not parroted", async () => {

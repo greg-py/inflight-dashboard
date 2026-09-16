@@ -118,12 +118,9 @@
   #card-reviews { --lane: var(--review); }
   #card-no_pr { --lane: var(--development); }
   #card-shipping { --lane: var(--good); }
-  #card-pod { --lane: var(--review); }
   #card-held { --lane: var(--ink-3); }
   #card-held .row { opacity: .62; }
   #card-held .row:hover { opacity: 1; }
-  #card-pod { max-height: 560px; overflow-y: auto; scrollbar-color: var(--rule-strong) transparent; scrollbar-width: thin; }
-  #card-pod .section-head { position: sticky; top: 0; z-index: 1; background: var(--paper); }
 
   .section-head {
     display: grid;
@@ -158,7 +155,6 @@
   /* Only urgent priorities are drawn. A board where every row carries a badge
      ranks nothing. */
   .prio { display: block; margin-top: 2px; color: var(--action); font: 750 8.5px/1.4 ui-monospace, "SFMono-Regular", monospace; letter-spacing: .06em; }
-  .owner { display: block; margin-top: 2px; color: var(--ink-3); font: 9px/1.4 ui-monospace, "SFMono-Regular", monospace; overflow: hidden; text-overflow: ellipsis; }
   .body { min-width: 0; }
   .summary { overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 630; letter-spacing: -.006em; text-overflow: ellipsis; white-space: nowrap; }
   .sub { color: var(--ink-3); font: 10px/1.4 ui-monospace, "SFMono-Regular", monospace; font-weight: 400; }
@@ -264,7 +260,6 @@
     </div>
     <aside class="board-column board-secondary" aria-label="Review and development queues">
       <section class="work-section" id="card-reviews"></section>
-      <section class="work-section" id="card-pod"></section>
       <section class="work-section" id="card-no_pr"></section>
       <section class="work-section" id="card-shipping"></section>
       <section class="work-section" id="card-held"></section>
@@ -280,8 +275,8 @@
   const SECTIONS = [
     { id: "needs_you", label: "Needs you", code: "01 / your move" },
     { id: "waiting", label: "Waiting on others", code: "02 / waiting" },
-    { id: "no_pr", label: "In development", code: "05 / building" },
-    { id: "held", label: "Held", code: "07 / held" },
+    { id: "no_pr", label: "In development", code: "04 / building" },
+    { id: "held", label: "Held", code: "06 / held" },
   ];
   const BAD = ["changes requested", "CI failing", "conflicts with base"];
   const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · in QA", "approved · move to QA", "approved"];
@@ -450,31 +445,6 @@
       (rows ? `<div class="gauges">${rows}</div>` : `<div class="instrument-empty">no providers reachable</div>`);
   };
 
-  // Pod flags carry their own clock rather than a settled-state label, so they
-  // are classified on age and severity instead of by lookup.
-  const POD_WARN_DAYS = 5;
-  const podFlagSpan = (flag) => {
-    const age = flag.match(/(\d+)d$/);
-    const cls = /^(held|blocked)/.test(flag) || /conflicts with base/.test(flag) ? "r-bad"
-      : /no reviewer requested/.test(flag) || (age && Number(age[1]) >= POD_WARN_DAYS) ? "r-warn"
-      : "";
-    return `<span class="signal ${cls}">${esc(flag)}</span>`;
-  };
-
-  const podRow = (row, action) => {
-    const prio = row.urgent ? `<span class="prio">${esc(String(row.priority).split("-")[0])}</span>` : "";
-    const flags = row.flags.length
-      ? `<div class="line"><span class="signals">${row.flags.map(podFlagSpan).join("")}</span></div>`
-      : "";
-    const prs = row.prs
-      .map((pr) => `<div class="line"><a class="pr-link" href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(repoName(pr.repo))} #${pr.number}</a><span class="signals">${pr.flags.map(podFlagSpan).join("")}</span></div>`)
-      .join("");
-    return `<div class="row"><span class="key"><a href="${esc(row.url)}" target="_blank" rel="noopener">${esc(row.key)}</a>${prio}<span class="owner" title="${esc(row.assignee)}">${esc(row.assignee)}</span></span>
-      <div class="body"><div class="summary" title="${esc(row.summary)}">${esc(row.summary)}</div>${flags}${prs}</div>
-      <span class="chip ${statusClass(row.status)}">${esc(row.status)}</span>
-      <button type="button" class="act" data-action="${action}" data-id="${esc(row.id)}" aria-label="${action} ${esc(row.key)}">${action}</button></div>`;
-  };
-
   const renderGoalie = (goalie) => {
     const el = document.getElementById("goalie");
     const head = instrumentHead("Bug goalie", "this week");
@@ -549,14 +519,12 @@
     renderCapacity(data.aiUsage);
     renderGoalie(data.goalie);
 
-    const podItems = data.pod?.items ?? [];
     const inboxItems = data.inbox?.items ?? [];
     const shippingItems = data.shipping?.items ?? [];
     const visible = data.items.filter((item) => !hidden.has(item.id));
     const visibleReviews = data.reviewRequests.filter((pr) => !hidden.has(pr.id));
     const visibleInbox = inboxItems.filter((note) => !hidden.has(note.id));
     const visibleShipping = shippingItems.filter((pr) => !hidden.has(pr.id));
-    const visiblePod = podItems.filter((row) => !hidden.has(row.id));
     const counts = Object.fromEntries(SECTIONS.map((section) => [section.id, visible.filter((item) => item.section === section.id).length]));
     for (const section of SECTIONS) {
       const items = visible.filter((i) => i.section === section.id);
@@ -564,12 +532,8 @@
         sectionRows(items, "hide"), "nothing here", items.length);
     }
 
-    card(document.getElementById("card-pod"), "04 / pod", data.pod?.name ?? "Pod",
-      visiblePod.map((row) => podRow(row, "hide")),
-      data.pod?.error ? esc(data.pod.error) : "pod work is moving");
-
     const shippingNote = data.shipping?.error ?? data.shipping?.note;
-    card(document.getElementById("card-shipping"), "06 / shipping", "Merged, not shipped",
+    card(document.getElementById("card-shipping"), "05 / shipping", "Merged, not shipped",
       visibleShipping.map((pr) => shippingRow(pr, "hide")),
       data.shipping?.error ? esc(data.shipping.error) : "everything merged is released");
     if (shippingNote && visibleShipping.length > 0) {
@@ -577,7 +541,7 @@
         "beforeend", `<div class="section-note">${esc(shippingNote)}</div>`);
     }
 
-    card(document.getElementById("card-inbox"), "08 / inbox", "GitHub inbox",
+    card(document.getElementById("card-inbox"), "07 / inbox", "GitHub inbox",
       visibleInbox.map((note) => notificationRow(note, "hide")),
       data.inbox?.error ? esc(data.inbox.error) : "inbox clear");
 
@@ -590,7 +554,6 @@
     const hiddenRows = [
       ...data.items.filter((item) => hidden.has(item.id)).map((item) => workRow(item, "restore")),
       ...data.reviewRequests.filter((pr) => hidden.has(pr.id)).map((pr) => reviewRow(pr, "restore")),
-      ...podItems.filter((row) => hidden.has(row.id)).map((row) => podRow(row, "restore")),
       ...shippingItems.filter((pr) => hidden.has(pr.id)).map((pr) => shippingRow(pr, "restore")),
       ...inboxItems.filter((note) => hidden.has(note.id)).map((note) => notificationRow(note, "restore")),
     ];
