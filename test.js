@@ -1238,3 +1238,13 @@ test("the browser and the cache agree on how often to refresh", () => {
   assert.equal(CONFIG.upstreamTtlMs, 300_000);
   assert.equal(refreshMs, CONFIG.upstreamTtlMs);
 });
+
+test("a stack only folds away where the rows are nobody's move", () => {
+  const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  // A blocked change carrying its own defect is still your move — you can push
+  // to a stacked branch — so folding it away left "Needs you" rendering an
+  // item count above an empty section.
+  assert.match(ui, /sectionRows\(items, "hide", section\.id === "waiting"\)/);
+  assert.match(ui, /const sectionRows = \(items, action, collapseStacks = false\)/);
+  assert.match(ui, /const root = collapseStacks \? blockedRootOf\(item\) : null;/);
+});

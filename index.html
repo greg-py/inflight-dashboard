@@ -481,11 +481,15 @@
     return blocked.length > 0 && blocked.length === item.prs.length ? blocked[0].stack.blockedBy : null;
   };
 
-  const sectionRows = (items, action) => {
+  // Only where the rows are nobody's move. A blocked change that has its own
+  // defect — bot findings to triage, feedback to answer — is still your move,
+  // and you can push to a stacked branch perfectly well; folding those away
+  // left "Needs you · 3 items" rendering nothing at all.
+  const sectionRows = (items, action, collapseStacks = false) => {
     const rows = [];
     const stacks = new Map();
     for (const item of items) {
-      const root = blockedRootOf(item);
+      const root = collapseStacks ? blockedRootOf(item) : null;
       if (root === null) rows.push(workRow(item, action));
       else stacks.set(root, [...(stacks.get(root) ?? []), item]);
     }
@@ -529,7 +533,7 @@
     for (const section of SECTIONS) {
       const items = visible.filter((i) => i.section === section.id);
       card(document.getElementById(`card-${section.id}`), section.code, section.label,
-        sectionRows(items, "hide"), "nothing here", items.length);
+        sectionRows(items, "hide", section.id === "waiting"), "nothing here", items.length);
     }
 
     const shippingNote = data.shipping?.error ?? data.shipping?.note;
