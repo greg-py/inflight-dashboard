@@ -1229,14 +1229,20 @@ test("a truncated GraphQL body is named and retried, not parroted", async () => 
   assert.match(integrations, /catch \{\s*if \(attempt <= CONFIG\.upstreamRetries\)/);
 });
 
-test("the browser and the cache agree on how often to refresh", () => {
+test("the cache window stays well under the refresh interval", () => {
   const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const refreshMs = Number(ui.match(/const REFRESH_MS = ([\d_]+);/)[1].replace(/_/g, ""));
-  // A tab reloading on a shorter clock than the cache only ever re-renders the
-  // tail of the previous window.
-  assert.equal(refreshMs, 300_000);
-  assert.equal(CONFIG.upstreamTtlMs, 300_000);
-  assert.equal(refreshMs, CONFIG.upstreamTtlMs);
+  // Equal clocks drift out of phase: a poll landing just inside the cache
+  // window gets data already a full interval old and then holds it for another
+  // interval, so the worst displayed age is TTL + interval rather than the
+  // interval the board advertises. Keeping the cache to a fraction of the
+  // interval bounds that at the interval itself.
+  assert.ok(
+    CONFIG.upstreamTtlMs <= refreshMs / 2,
+    `cache ${CONFIG.upstreamTtlMs}ms must be at most half of the ${refreshMs}ms refresh`,
+  );
+  // Worst-case staleness a reader can ever see, stated as the board's promise.
+  assert.ok(CONFIG.upstreamTtlMs + refreshMs <= 360_000);
 });
 
 test("a stack only folds away where the rows are nobody's move", () => {

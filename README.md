@@ -239,9 +239,14 @@ npm start
 
 Open <http://localhost:4477>, and press Ctrl-C in the terminal when you are done.
 
-The browser refreshes every five minutes, and Jira and GitHub responses are cached for
-the same five, so a tab reloading on schedule gets fresh data rather than the tail of
-the previous window. The last good response remains visible if either service is
+The browser refreshes every five minutes. Jira and GitHub responses are cached for one,
+which has to stay well under that: set equal to the refresh interval, the two clocks
+drift out of phase and a scheduled poll can land just inside the cache window, receive
+data already nearly five minutes old, and then hold it for five more — the masthead
+reads "updated 9m ago" on a board that believes it refreshes every five minutes. The
+cache is only there to collapse bursts (several tabs, a manual reload, the refresh that
+fires when a hidden tab is focused again), so a minute covers it and every scheduled
+poll still fetches fresh. The last good response remains visible if either service is
 temporarily unavailable.
 
 ## Layout
