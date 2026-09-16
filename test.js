@@ -443,7 +443,14 @@ test("sectionFor respects PR state and QA holds", () => {
   assert.equal(sectionFor({ status: "In Testing", prs: [{ ...merge, qaGate: "passed" }] }), "needs_you");
   assert.equal(sectionFor({ status: "READY TO MERGE", prs: [merge] }), "needs_you");
   assert.equal(sectionFor({ prs: [], status: "In Testing" }), "waiting");
-  assert.equal(sectionFor({ prs: [], status: "TO DO" }), "no_pr");
+  // Started and not-started split on the status category, not the name.
+  assert.equal(sectionFor({ prs: [], status: "TO DO", statusCategory: "new" }), "to_do");
+  assert.equal(sectionFor({ prs: [], status: "In Progress", statusCategory: "indeterminate" }), "in_progress");
+  // Work I only lead is a staffing question whatever its status says.
+  assert.equal(
+    sectionFor({ prs: [], status: "TO DO", statusCategory: "new", leadUnassigned: true }),
+    "lead",
+  );
 });
 
 test("statusRank follows the delivery pipeline", () => {
@@ -547,12 +554,13 @@ test("buildItems annotates merged work and relabels QA-held approvals", () => {
   assert.deepEqual(inQa[0].prs[0].reasons, ["approved · in QA", "CI green"]);
 });
 
-test("work whose every PR is still a draft sits in development, not needs-you", () => {
+test("work whose every PR is still a draft sits in progress, not needs-you", () => {
   const draftOnly = buildItems(
     [],
     [prFixture({ number: 700, title: "Prototype", headRefName: "proto", isDraft: true, ...categorizePr({ ...basePr, isDraft: true, ci: "failure", mergeable: "CONFLICTING" }) })],
   );
-  assert.equal(draftOnly[0].section, "no_pr");
+  // A draft is started work, so it belongs with what is in progress.
+  assert.equal(draftOnly[0].section, "in_progress");
   // Even a draft carrying real problems: it is unfinished, not anyone's move.
   assert.ok(draftOnly[0].prs[0].reasons.includes("CI failing"));
 
@@ -678,7 +686,7 @@ test("dashboard keeps work queues primary instead of rendering summary metrics",
   const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.equal(ui.includes('id="overview"'), false);
   assert.equal(ui.includes('class="metric'), false);
-  for (const queue of ["needs_you", "waiting", "reviews", "no_pr", "shipping", "held"]) {
+  for (const queue of ["needs_you", "waiting", "reviews", "in_progress", "to_do", "lead", "shipping", "held"]) {
     assert.equal(ui.includes(`id="card-${queue}"`), true, `${queue} queue should remain visible`);
   }
   // Capacity is a strip above the board, never a panel that displaces it.
@@ -1203,4 +1211,41 @@ test("a stack only folds away where the rows are nobody's move", () => {
   assert.match(ui, /sectionRows\(items, "hide", section\.id === "waiting"\)/);
   assert.match(ui, /const sectionRows = \(items, action, collapseStacks = false\)/);
   assert.match(ui, /const root = collapseStacks \? blockedRootOf\(item\) : null;/);
+});
+
+test("work I lead but nobody owns is its own lane, never mixed into my queue", () => {
+  const issue = (key, status, category) => ({
+    key,
+    changelog: { histories: [] },
+    fields: {
+      summary: key,
+      status: { name: status, statusCategory: { key: category } },
+      issuetype: { subtask: false },
+      updated: "2026-09-14T00:00:00Z",
+    },
+  });
+  const items = buildItems(
+    [issue("PY-MINE-DOING", "In Progress", "indeterminate"), issue("PY-MINE-TODO", "TO DO", "new")],
+    [],
+    [],
+    [issue("PY-LEAD", "TO DO", "new")],
+  );
+  const section = (key) => items.find((item) => item.key === key).section;
+  // Started and not-started are different questions and get different lanes.
+  assert.equal(section("PY-MINE-DOING"), "in_progress");
+  assert.equal(section("PY-MINE-TODO"), "to_do");
+  // A ticket I only lead never lands in either, however its status reads.
+  assert.equal(section("PY-LEAD"), "lead");
+  assert.equal(items.find((item) => item.key === "PY-LEAD").leadUnassigned, true);
+  assert.equal(items.find((item) => item.key === "PY-MINE-TODO").leadUnassigned, false);
+});
+
+test("the lead query never claims work someone else is already assigned", () => {
+  // The whole point of the narrower query: "I lead it and nobody has it" is a
+  // staffing question of mine; "I lead it and Paul has it" is Paul's work.
+  assert.match(CONFIG.jiraLeadUnassignedJql, /assignee IS EMPTY/);
+  assert.equal(/assignee\s*!=\s*currentUser/.test(CONFIG.jiraLeadUnassignedJql), false);
+  // Unbounded this is a junk drawer of tickets named years ago, so it is windowed.
+  assert.match(CONFIG.jiraLeadUnassignedJql, /updated >= -%DAYS%d/);
+  assert.ok(CONFIG.leadUnassignedLookbackDays > 0);
 });

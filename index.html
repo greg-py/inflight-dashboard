@@ -106,7 +106,9 @@
   #card-needs_you { --lane: var(--action); }
   #card-waiting { --lane: var(--waiting); }
   #card-reviews { --lane: var(--review); }
-  #card-no_pr { --lane: var(--development); }
+  #card-in_progress { --lane: var(--development); }
+  #card-to_do { --lane: var(--ink-2); }
+  #card-lead { --lane: var(--waiting); }
   #card-shipping { --lane: var(--good); }
   #card-held { --lane: var(--ink-3); }
   #card-held .row { opacity: .62; }
@@ -246,7 +248,9 @@
     </div>
     <aside class="board-column board-secondary" aria-label="Review and development queues">
       <section class="work-section" id="card-reviews"></section>
-      <section class="work-section" id="card-no_pr"></section>
+      <section class="work-section" id="card-in_progress"></section>
+      <section class="work-section" id="card-to_do"></section>
+      <section class="work-section" id="card-lead"></section>
       <section class="work-section" id="card-shipping"></section>
       <section class="work-section" id="card-held"></section>
       <section class="work-section" hidden id="card-hidden">
@@ -260,8 +264,10 @@
   const SECTIONS = [
     { id: "needs_you", label: "Needs you", code: "01 / your move" },
     { id: "waiting", label: "Waiting on others", code: "02 / waiting" },
-    { id: "no_pr", label: "In development", code: "04 / building" },
-    { id: "held", label: "Held", code: "06 / held" },
+    { id: "in_progress", label: "In progress", code: "04 / building" },
+    { id: "to_do", label: "To do", code: "05 / queued" },
+    { id: "lead", label: "Needs an owner", code: "06 / unowned" },
+    { id: "held", label: "Held", code: "08 / held" },
   ];
   const BAD = ["changes requested", "CI failing", "conflicts with base"];
   const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · in QA", "approved · move to QA", "approved"];
@@ -498,7 +504,7 @@
     }
 
     const shippingNote = data.shipping?.error ?? data.shipping?.note;
-    card(document.getElementById("card-shipping"), "05 / shipping", "Merged, not shipped",
+    card(document.getElementById("card-shipping"), "07 / shipping", "Merged, not shipped",
       visibleShipping.map((pr) => shippingRow(pr, "hide")),
       data.shipping?.error ? esc(data.shipping.error) : "everything merged is released");
     if (shippingNote && visibleShipping.length > 0) {

@@ -6,7 +6,9 @@ A local, read-only dashboard for ongoing work. It joins your assigned Jira ticke
 - work that needs your attention, including review feedback, CI failures, conflicts,
   merge-ready changes, and stalled CI;
 - work waiting on reviewers or QA;
-- assigned tickets and subtasks that do not have an open pull request yet;
+- assigned tickets and subtasks with no open pull request yet, split by whether
+  they are started or still queued;
+- tickets you are Engineering Lead on that nobody has picked up;
 - pull requests waiting for your review;
 - work you have merged that is not in the last release yet;
 - work someone has deliberately frozen.
@@ -109,6 +111,26 @@ Waiting on the change underneath is position, not a defect — treating it as on
 would move every row of a stack into your move at once. A base whose pull
 request has already merged reads as unstacked rather than blocked forever, since
 GitHub retargets those to the default branch shortly.
+
+## In progress, to do, and unowned
+
+Work with no pull request yet answers three different questions, so it gets
+three sections rather than one queue that mixes them. **In progress** and
+**To do** split on Jira's status *category*, not the status name, which every
+board is free to rename; a draft pull request counts as started work and sits
+with the rest of what is in progress.
+
+**Needs an owner** is tickets you are Engineering Lead on that nobody has been
+assigned — yours to answer for, and invisible to an assignee-scoped board.
+Deliberately not the wider "you lead it, someone else has it": that is their
+work, not a queue of yours, so the query is `assignee IS EMPTY` rather than
+`assignee != currentUser()`.
+
+That one needs a window or it becomes a junk drawer. Unbounded it returns
+every ticket you were ever named on and nobody picked up, most of them years
+stale; scoped to the open sprint it returns nothing, because these get groomed
+a sprint or more ahead of being worked. `leadUnassignedLookbackDays` — sixty
+days, roughly four sprints — is the middle that keeps the live ones.
 
 ## Holds
 

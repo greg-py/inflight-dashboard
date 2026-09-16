@@ -11,7 +11,12 @@ const buildSnapshot = async () => {
   return {
     fetchedAt: upstream.fetchedAt,
     sources: upstream.sources,
-    items: buildItems(upstream.jiraIssues, upstream.github.mine, upstream.github.merged),
+    items: buildItems(
+      upstream.jiraIssues,
+      upstream.github.mine,
+      upstream.github.merged,
+      upstream.leadIssues,
+    ),
     reviewRequests: upstream.github.reviewRequests,
     shipping: upstream.shipping,
     aiUsage: upstream.aiUsage,
