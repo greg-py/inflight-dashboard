@@ -74,19 +74,11 @@
   #error { margin: 10px 0 0; padding-left: 10px; border-left: 4px solid var(--action); color: var(--action); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
 
   .instruments {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
     margin-top: 22px;
     border-top: 3px solid var(--ink);
     border-bottom: 1px solid var(--rule-strong);
   }
   .instrument { padding: 11px 0 12px; }
-  .instrument:first-child { padding-right: 28px; }
-  .instrument + .instrument { padding-left: 28px; border-left: 1px solid var(--rule); }
-  .goalie { display: flex; align-items: baseline; gap: 9px; }
-  .goalie-name { color: var(--ink); font-size: 12.5px; font-weight: 680; letter-spacing: -.006em; }
-  .goalie-name.is-you { color: var(--action); font-weight: 750; }
-  .goalie-meta { color: var(--ink-3); font: 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; }
   .instrument-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
   .instrument-code { color: var(--lane, var(--ink-2)); font-size: 9px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
   .instrument-note { overflow: hidden; color: var(--ink-3); font-size: 9px; letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
@@ -105,8 +97,6 @@
   .gauge-reset { color: var(--ink-3); font-size: 9px; text-align: right; white-space: nowrap; }
   /* An old reading is a floor, not a fiction: keep the colour, flag the age. */
   .gauge-note { grid-column: 2 / -1; color: var(--ink-3); font: 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; }
-
-  .key.reason { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 
   .board { display: grid; grid-template-columns: minmax(0, 13fr) minmax(360px, 8fr); gap: 0; align-items: start; margin-top: 26px; }
   .board-column { min-width: 0; }
@@ -212,9 +202,6 @@
   #hidden-list .row:hover { opacity: 1; }
 
   @media (max-width: 1040px) {
-    .instruments { grid-template-columns: minmax(0, 1fr); }
-    .instrument:first-child { padding-right: 0; }
-    .instrument:last-child { padding: 12px 0 0; border-top: 1px solid var(--rule); border-left: 0; }
     .board { grid-template-columns: minmax(0, 1fr); }
     .board-primary { padding-right: 0; }
     .board-secondary { padding: 4px 0 0; border-left: 0; }
@@ -251,7 +238,6 @@
   <div id="error" hidden></div>
   <section class="instruments" aria-label="AI capacity and bug rotation">
     <div class="instrument" id="capacity"></div>
-    <div class="instrument" id="goalie"></div>
   </section>
   <div class="board">
     <div class="board-column board-primary">
@@ -263,7 +249,6 @@
       <section class="work-section" id="card-no_pr"></section>
       <section class="work-section" id="card-shipping"></section>
       <section class="work-section" id="card-held"></section>
-      <section class="work-section" id="card-inbox"></section>
       <section class="work-section" hidden id="card-hidden">
         <details class="folded" id="hidden-details"><summary id="hidden-summary">Hidden</summary><div id="hidden-list"></div></details>
       </section>
@@ -445,33 +430,12 @@
       (rows ? `<div class="gauges">${rows}</div>` : `<div class="instrument-empty">no providers reachable</div>`);
   };
 
-  const renderGoalie = (goalie) => {
-    const el = document.getElementById("goalie");
-    const head = instrumentHead("Bug goalie", "this week");
-    const rotation = goalie?.value;
-    if (!rotation) {
-      el.innerHTML = head + `<div class="instrument-empty">${esc(goalie?.error ?? "no rotation found")}</div>`;
-      return;
-    }
-    const days = ago(Date.parse(rotation.since));
-    el.innerHTML = head +
-      `<div class="goalie"><span class="goalie-name${rotation.isViewer ? " is-you" : ""}">${esc(rotation.name)}</span>` +
-      `<span class="goalie-meta">${rotation.bugs} bug${rotation.bugs === 1 ? "" : "s"} · ${esc(days)}</span></div>`;
-  };
-
   const shippingRow = (pr, action) =>
     `<div class="row"><span class="key">${pr.ticketKey ? `<a href="${esc(pr.ticketUrl)}" target="_blank" rel="noopener">${esc(pr.ticketKey)}</a>` : "—"}</span>
       <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
       <div class="line review-meta"><span class="meta-item"><a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(repoName(pr.repo))} #${pr.number}</a></span><span class="meta-item">merged ${esc(ago(Date.parse(pr.mergedAt)))} ago</span><span class="meta-item">after ${esc(pr.tag)}</span></div></div>
       <span class="chip status-ready-to-merge">unreleased</span>
       <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" aria-label="${action} ${esc(pr.title)}">${action}</button></div>`;
-
-  const notificationRow = (note, action) =>
-    `<div class="row"><span class="key reason">${esc(note.reason)}</span>
-      <div class="body"><div class="summary" title="${esc(note.title)}"><a href="${esc(note.url)}" target="_blank" rel="noopener">${esc(note.title)}</a></div>
-      <div class="line context-line">${note.updatedAt ? `${esc(ago(Date.parse(note.updatedAt)))} ago` : ""}</div></div>
-      <span class="chip">${esc(repoName(note.repo))}</span>
-      <button type="button" class="act" data-action="${action}" data-id="${esc(note.id)}" aria-label="${action} ${esc(note.title)}">${action}</button></div>`;
 
   // A stack is one piece of news, not eleven. Everything queued behind the same
   // unmerged change folds into a single line that names the change to fix; the
@@ -521,13 +485,10 @@
     document.getElementById("sync-dot").classList.toggle("warn", banners.length > 0);
 
     renderCapacity(data.aiUsage);
-    renderGoalie(data.goalie);
 
-    const inboxItems = data.inbox?.items ?? [];
     const shippingItems = data.shipping?.items ?? [];
     const visible = data.items.filter((item) => !hidden.has(item.id));
     const visibleReviews = data.reviewRequests.filter((pr) => !hidden.has(pr.id));
-    const visibleInbox = inboxItems.filter((note) => !hidden.has(note.id));
     const visibleShipping = shippingItems.filter((pr) => !hidden.has(pr.id));
     const counts = Object.fromEntries(SECTIONS.map((section) => [section.id, visible.filter((item) => item.section === section.id).length]));
     for (const section of SECTIONS) {
@@ -545,11 +506,7 @@
         "beforeend", `<div class="section-note">${esc(shippingNote)}</div>`);
     }
 
-    card(document.getElementById("card-inbox"), "07 / inbox", "GitHub inbox",
-      visibleInbox.map((note) => notificationRow(note, "hide")),
-      data.inbox?.error ? esc(data.inbox.error) : "inbox clear");
-
-    const attention = counts.needs_you + visibleReviews.length + visibleInbox.length;
+    const attention = counts.needs_you + visibleReviews.length;
     document.title = attention > 0 ? `(${attention}) In-flight` : "In-flight";
 
     card(document.getElementById("card-reviews"), "03 / reviews", "Reviews requested of you",
@@ -559,7 +516,6 @@
       ...data.items.filter((item) => hidden.has(item.id)).map((item) => workRow(item, "restore")),
       ...data.reviewRequests.filter((pr) => hidden.has(pr.id)).map((pr) => reviewRow(pr, "restore")),
       ...shippingItems.filter((pr) => hidden.has(pr.id)).map((pr) => shippingRow(pr, "restore")),
-      ...inboxItems.filter((note) => hidden.has(note.id)).map((note) => notificationRow(note, "restore")),
     ];
     document.getElementById("card-hidden").hidden = hiddenRows.length === 0;
     document.getElementById("hidden-summary").textContent = `Hidden · ${hiddenRows.length}`;

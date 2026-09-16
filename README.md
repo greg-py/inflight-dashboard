@@ -9,11 +9,10 @@ A local, read-only dashboard for ongoing work. It joins your assigned Jira ticke
 - assigned tickets and subtasks that do not have an open pull request yet;
 - pull requests waiting for your review;
 - work you have merged that is not in the last release yet;
-- work someone has deliberately frozen; and
-- unread GitHub notifications the board does not already show in full.
+- work someone has deliberately frozen.
 
-Above the board sit two readings: how much of each coding agent's rate limit is
-spent, and who is holding the production bug pager this week.
+Above the board sits one reading: how much of each coding agent's rate limit is
+spent.
 
 ## Signals
 
@@ -128,14 +127,10 @@ transition is when the current status began. That is what turns
 6d` is worth chasing, and the same label at `0d` is not. A QA queue is slower
 than a review queue, so it gets a longer fuse before the same amber.
 
-Above the board sit two readings:
+Above the board sits one reading:
 
 - **Capacity** — how much of each coding agent's rate-limit window is spent, and when
   it rolls over.
-- **Bug goalie** — who is holding the production bug pager this week, since when, and
-  how many bugs have landed on them. The rotation is announced by a bot in one Slack
-  channel and recorded nowhere else. It needs `SLACK_TOKEN`; without one the strip
-  says so and the rest of the board is unaffected.
 
 `[SYSTEM]` in the masthead cycles the theme to `[LIGHT]` or `[DARK]` and remembers
 the choice in the browser; `[SYSTEM]` follows the OS.
@@ -227,9 +222,6 @@ To add a provider, add a probe to `PROVIDERS` in `lib/ai-usage.js` returning
 2. Create a Jira API token at
    <https://id.atlassian.com/manage-profile/security/api-tokens>.
 3. Copy `.env.example` to `.env` and fill in `JIRA_EMAIL` and `JIRA_API_TOKEN`.
-4. Optional, for the goalie strip only: create a Slack token with
-   `channels:history` on the goalie channel and set `SLACK_TOKEN` and
-   `SLACK_USER_ID`. Everything else works without it.
 
 ## Run
 
@@ -254,7 +246,7 @@ temporarily unavailable.
 - `server.js` — read-only HTTP API and static UI server
 - `lib/config.js` — Jira/GitHub queries and display categorization settings
 - `lib/integrations.js` — Jira/GitHub fetchers and TTL cache
-- `lib/model.js` — pure joining, categorization, stacks, holds, and inbox logic
+- `lib/model.js` — pure joining, categorization, stacks, holds, and sorting logic
 - `lib/ai-usage.js` — AI capacity probes and their pure normalizers
 - `index.html` — single-page dashboard UI
 - `test.js` — domain and integration-mapping tests

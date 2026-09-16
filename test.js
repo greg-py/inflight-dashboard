@@ -10,8 +10,6 @@ import {
   sectionFor,
   statusRank,
   buildItems,
-  htmlUrlFor,
-  buildInbox,
   reviewerWaits,
   awaitingReason,
   reReviewReason,
@@ -28,7 +26,6 @@ import {
   isUrgent,
   statusSince,
   daysSince,
-  buildGoalie,
   promptForPr,
   promptForReview,
   promptForTicket,
@@ -681,7 +678,7 @@ test("dashboard keeps work queues primary instead of rendering summary metrics",
   const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.equal(ui.includes('id="overview"'), false);
   assert.equal(ui.includes('class="metric'), false);
-  for (const queue of ["needs_you", "waiting", "reviews", "no_pr", "shipping", "inbox"]) {
+  for (const queue of ["needs_you", "waiting", "reviews", "no_pr", "shipping", "held"]) {
     assert.equal(ui.includes(`id="card-${queue}"`), true, `${queue} queue should remain visible`);
   }
   // Capacity is a strip above the board, never a panel that displaces it.
@@ -821,39 +818,6 @@ test("buildShipping flags a release gap too deep for the compare endpoint", () =
   );
   assert.equal(shipping.items.length, 1);
   assert.equal(shipping.note, "r: 400+ commits unreleased");
-});
-
-test("htmlUrlFor turns notification subjects into pages a human can open", () => {
-  assert.equal(
-    htmlUrlFor("https://api.github.com/repos/PerformYard/PerformYard/pulls/7516", "PerformYard/PerformYard"),
-    "https://github.com/PerformYard/PerformYard/pull/7516",
-  );
-  assert.equal(
-    htmlUrlFor("https://api.github.com/repos/o/r/issues/12", "o/r"),
-    "https://github.com/o/r/issues/12",
-  );
-  // Discussions and releases carry no mappable subject URL.
-  assert.equal(htmlUrlFor(null, "o/r"), "https://github.com/o/r");
-  assert.equal(htmlUrlFor(null, null), "https://github.com/notifications");
-});
-
-test("buildInbox drops what the board already shows and keeps the newest news", () => {
-  const note = (id, reason, updated) => ({
-    id,
-    reason,
-    updated_at: updated,
-    subject: { title: `t${id}`, url: `https://api.github.com/repos/o/r/pulls/${id}` },
-    repository: { full_name: "o/r" },
-  });
-  const inbox = buildInbox([
-    note(1, "author", "2026-09-10T00:00:00Z"),
-    note(2, "review_requested", "2026-09-10T00:00:00Z"),
-    note(3, "mention", "2026-09-08T00:00:00Z"),
-    note(4, "comment", "2026-09-09T00:00:00Z"),
-  ]);
-  assert.deepEqual(inbox.map((entry) => entry.id), ["gh-notification-4", "gh-notification-3"]);
-  assert.equal(inbox[0].reason, "comment");
-  assert.equal(inbox[0].url, "https://github.com/o/r/pull/4");
 });
 
 test("windowLabel reads rate-limit windows the way an operator states them", () => {
@@ -1088,20 +1052,6 @@ test("a QA wait states how long it has been queued", () => {
   assert.match(label, /^approved · awaiting QA · \d+d$/);
 });
 
-test("the goalie rotation is read from the announcement that starts it", () => {
-  const messages = [
-    { ts: "1000", text: "Bug reported in the domain `AI` and assigned to <@U1|Greg King>. Ticket: PY-1" },
-    { ts: "900", text: "Weekly goalie change. Last week's goalie was <@U2|Paul>, and this week's goalie is <@U1|Greg King>." },
-    // Before the rotation started, so not this goalie's load.
-    { ts: "800", text: "Bug reported in the domain `AI` and assigned to <@U2|Paul>. Ticket: PY-0" },
-  ];
-  const goalie = buildGoalie(messages, "U1");
-  assert.equal(goalie.name, "Greg King");
-  assert.equal(goalie.isViewer, true);
-  assert.equal(goalie.bugs, 1);
-  assert.equal(buildGoalie([], "U1"), null);
-});
-
 test("each pull request defect routes to the skill that addresses it", () => {
   const pr = (extra) => ({ number: 7486, repo: "PerformYard/PerformYard", openThreads: 0, botThreads: 0, ci: "success", mergeable: "MERGEABLE", ...extra });
   // Feedback outranks the rest: it is the one another person is waiting on.
@@ -1214,8 +1164,8 @@ test("copying a prompt is the only thing the button does", () => {
 
 test("a truncated GraphQL body is named and retried, not parroted", async () => {
   const integrations = readFileSync(new URL("./lib/integrations.js", import.meta.url), "utf8");
-  // Scoped to the GraphQL path: the Jira and Slack fetchers read small bodies
-  // and res.json() is right for them.
+  // Scoped to the GraphQL path: the Jira fetcher reads small bodies where
+  // res.json() is right.
   const graphqlFn = integrations.slice(
     integrations.indexOf("const graphql = async"),
     integrations.indexOf("const CORE_FIELDS"),
