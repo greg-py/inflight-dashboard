@@ -19,7 +19,6 @@ const buildSnapshot = async () => {
     ),
     reviewRequests: upstream.github.reviewRequests,
     shipping: upstream.shipping,
-    aiUsage: upstream.aiUsage,
   };
 };
 

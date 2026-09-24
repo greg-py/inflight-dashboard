@@ -32,12 +32,6 @@ import {
 } from "./lib/model.js";
 import { mapReviewPr, failureReason } from "./lib/integrations.js";
 import { CONFIG } from "./lib/config.js";
-import {
-  windowLabel,
-  normalizeClaudeUsage,
-  normalizeCodexRateLimits,
-  codexReachedNote,
-} from "./lib/ai-usage.js";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
   assert.deepEqual(
@@ -658,7 +652,6 @@ test("dashboard has no agent execution or external write endpoints", () => {
   const server = readFileSync(new URL("./server.js", import.meta.url), "utf8");
   const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const integrations = readFileSync(new URL("./lib/integrations.js", import.meta.url), "utf8");
-  const aiUsage = readFileSync(new URL("./lib/ai-usage.js", import.meta.url), "utf8");
   const packageJson = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
   for (const forbidden of [
     "startSession",
@@ -672,11 +665,7 @@ test("dashboard has no agent execution or external write endpoints", () => {
     assert.equal(server.includes(forbidden), false, `${forbidden} should not be served`);
     assert.equal(ui.includes(forbidden), false, `${forbidden} should not be rendered`);
     assert.equal(integrations.includes(forbidden), false, `${forbidden} should not be integrated`);
-    assert.equal(aiUsage.includes(forbidden), false, `${forbidden} should not be probed`);
   }
-  // The capacity probe shells out exactly once, to read a credential the user
-  // already holds. Anything else would make this more than a read-only board.
-  assert.deepEqual(aiUsage.match(/execFileAsync\(\s*"([a-z]+)"/g), ['execFileAsync(\n    "security"']);
   assert.equal(server.includes('req.method === "POST"'), false, "server should expose GET routes only");
   assert.equal(ui.includes('method: "POST"'), false, "UI should not call write endpoints");
   assert.deepEqual(Object.keys(packageJson.scripts), ["start", "test"]);
@@ -689,8 +678,6 @@ test("dashboard keeps work queues primary instead of rendering summary metrics",
   for (const queue of ["needs_you", "waiting", "reviews", "in_progress", "to_do", "lead", "shipping", "held"]) {
     assert.equal(ui.includes(`id="card-${queue}"`), true, `${queue} queue should remain visible`);
   }
-  // Capacity is a strip above the board, never a panel that displaces it.
-  assert.ok(ui.indexOf('class="instruments"') < ui.indexOf('class="board"'));
 });
 
 test("every reason the model emits has a severity the UI can classify", () => {
@@ -826,77 +813,6 @@ test("buildShipping flags a release gap too deep for the compare endpoint", () =
   );
   assert.equal(shipping.items.length, 1);
   assert.equal(shipping.note, "r: 400+ commits unreleased");
-});
-
-test("windowLabel reads rate-limit windows the way an operator states them", () => {
-  assert.equal(windowLabel(10080), "7d");
-  assert.equal(windowLabel(300), "5h");
-  assert.equal(windowLabel(45), "45m");
-  assert.equal(windowLabel(undefined), "window");
-});
-
-test("normalizeClaudeUsage prefers the limits array and hides unused scoped windows", () => {
-  const gauges = normalizeClaudeUsage({
-    limits: [
-      { kind: "session", percent: 31, resets_at: "2026-09-11T17:00:00Z", scope: null },
-      { kind: "weekly_all", percent: 0, resets_at: "2026-09-18T08:00:00Z", scope: null },
-      { kind: "weekly_scoped", percent: 0, resets_at: "2026-09-18T08:00:00Z", scope: { model: { display_name: "Fable" } } },
-      { kind: "weekly_scoped", percent: 12, resets_at: "2026-09-18T08:00:00Z", scope: { model: { display_name: "Opus" } } },
-    ],
-  });
-  assert.deepEqual(gauges.map((gauge) => gauge.label), ["5h", "7d", "7d Opus"]);
-  assert.equal(gauges[0].usedPercent, 31);
-});
-
-test("normalizeClaudeUsage falls back to the legacy top-level windows", () => {
-  const gauges = normalizeClaudeUsage({
-    five_hour: { utilization: 31.4, resets_at: "2026-09-11T17:00:00Z" },
-    seven_day: { utilization: 4, resets_at: "2026-09-18T08:00:00Z" },
-    seven_day_opus: null,
-  });
-  assert.deepEqual(gauges, [
-    { label: "5h", usedPercent: 31, resetsAt: "2026-09-11T17:00:00Z" },
-    { label: "7d", usedPercent: 4, resetsAt: "2026-09-18T08:00:00Z" },
-  ]);
-});
-
-test("normalizeCodexRateLimits reads the live app-server snapshot", () => {
-  const now = Date.parse("2026-09-11T00:00:00Z");
-  const gauges = normalizeCodexRateLimits(
-    {
-      primary: { usedPercent: 100, windowDurationMins: 10080, resetsAt: 1_789_444_180 },
-      secondary: { usedPercent: 40, windowDurationMins: 300, resetsAt: 1_789_444_180 },
-    },
-    now,
-  );
-  assert.deepEqual(
-    gauges.map((entry) => [entry.label, entry.usedPercent]),
-    [["7d", 100], ["5h", 40]],
-  );
-});
-
-test("normalizeCodexRateLimits drops windows that have already rolled over", () => {
-  const now = Date.parse("2026-09-11T00:00:00Z");
-  const gauges = normalizeCodexRateLimits(
-    {
-      primary: { usedPercent: 82, windowDurationMins: 10080, resetsAt: 1_789_444_180 },
-      // Rolled over in 2001: whatever it says is spent no longer applies.
-      secondary: { usedPercent: 99, windowDurationMins: 300, resetsAt: 1_000_000_000 },
-    },
-    now,
-  );
-  assert.deepEqual(gauges.map((entry) => entry.label), ["7d"]);
-  assert.equal(normalizeCodexRateLimits({ primary: null, secondary: null }, now).length, 0);
-  assert.deepEqual(normalizeCodexRateLimits(null, now), []);
-});
-
-test("codexReachedNote explains a spent limit rather than leaving 100% bare", () => {
-  assert.equal(
-    codexReachedNote({ rateLimitReachedType: "workspace_member_credits_depleted" }),
-    "workspace member credits depleted",
-  );
-  assert.equal(codexReachedNote({ rateLimitReachedType: null }), null);
-  assert.equal(codexReachedNote(null), null);
 });
 
 const stackPr = (number, head, base, extra = {}) => ({

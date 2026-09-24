@@ -56,8 +56,7 @@
     border-top: 5px solid var(--ink);
     border-bottom: 1px solid var(--ink);
   }
-  .section-code, .count, .key, .chip, .reviewer, .sync-status,
-  .instrument-code, .instrument-note, .gauge-name, .gauge-pct, .gauge-reset {
+  .section-code, .count, .key, .chip, .reviewer, .sync-status {
     font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   }
   .masthead h1 { margin: 0; font-size: clamp(36px, 4.8vw, 64px); line-height: .8; letter-spacing: -.055em; }
@@ -72,31 +71,6 @@
   #banners { margin-top: 10px; }
   .banner { margin: 0 0 6px; padding: 7px 10px; border-left: 4px solid var(--waiting); background: var(--wash); color: var(--waiting); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
   #error { margin: 10px 0 0; padding-left: 10px; border-left: 4px solid var(--action); color: var(--action); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
-
-  .instruments {
-    margin-top: 22px;
-    border-top: 3px solid var(--ink);
-    border-bottom: 1px solid var(--rule-strong);
-  }
-  .instrument { padding: 11px 0 12px; }
-  .instrument-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-  .instrument-code { color: var(--lane, var(--ink-2)); font-size: 9px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
-  .instrument-note { overflow: hidden; color: var(--ink-3); font-size: 9px; letter-spacing: .06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
-  .instrument-empty { color: var(--ink-3); font: italic 12px/1.5 "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
-
-  .meter { height: 5px; border: 1px solid var(--rule); background: var(--wash); }
-  .meter-fill { height: 100%; background: var(--lane, var(--ink-2)); }
-  .m-good { --lane: var(--good); }
-  .m-warn { --lane: var(--waiting); }
-  .m-bad { --lane: var(--action); }
-
-  #capacity { --lane: var(--review); }
-  .gauges { display: grid; grid-template-columns: auto minmax(44px, 1fr) auto auto; align-items: center; gap: 7px 10px; }
-  .gauge-name { color: var(--ink-2); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
-  .gauge-pct { color: var(--ink); font-size: 10px; font-weight: 650; text-align: right; }
-  .gauge-reset { color: var(--ink-3); font-size: 9px; text-align: right; white-space: nowrap; }
-  /* An old reading is a floor, not a fiction: keep the colour, flag the age. */
-  .gauge-note { grid-column: 2 / -1; color: var(--ink-3); font: 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; }
 
   .board { display: grid; grid-template-columns: minmax(0, 13fr) minmax(360px, 8fr); gap: 0; align-items: start; margin-top: 26px; }
   .board-column { min-width: 0; }
@@ -212,9 +186,6 @@
     main { padding: 18px 14px 44px; }
     .masthead { gap: 14px; padding-top: 10px; }
     .masthead h1 { font-size: 36px; }
-    .gauges { grid-template-columns: auto minmax(34px, 1fr) auto; }
-    /* Routine reset times are chatter at this width; an age warning is not. */
-    .gauge-reset { display: none; }
     .board { margin-top: 20px; }
     .section-head { grid-template-columns: 72px minmax(0, 1fr) auto; }
     .row { grid-template-columns: 72px minmax(0, 1fr) 26px; gap: 8px; }
@@ -238,9 +209,6 @@
   </header>
   <div id="banners"></div>
   <div id="error" hidden></div>
-  <section class="instruments" aria-label="AI capacity and bug rotation">
-    <div class="instrument" id="capacity"></div>
-  </section>
   <div class="board">
     <div class="board-column board-primary">
       <section class="work-section" id="card-needs_you"></section>
@@ -308,15 +276,6 @@
     if (m < 60) return `${m}m`;
     if (m < 1440) return `${Math.round(m / 60)}h`;
     return `${Math.round(m / 1440)}d`;
-  };
-
-  const until = (ts) => {
-    const minutes = Math.round((Date.parse(ts) - Date.now()) / 60_000);
-    if (!Number.isFinite(minutes)) return "";
-    if (minutes <= 0) return "resetting";
-    if (minutes < 60) return `resets ${minutes}m`;
-    if (minutes < 1440) return `resets ${Math.round(minutes / 60)}h`;
-    return `resets ${Math.round(minutes / 1440)}d`;
   };
 
   const showError = (msg) => {
@@ -403,39 +362,6 @@
       <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" aria-label="${action} review ${esc(pr.title)}">${action}</button></div>`;
   };
 
-  const clampPct = (value) => Math.min(100, Math.max(0, Number(value) || 0));
-  const meter = (percent, cls) =>
-    `<div class="meter ${cls}"><div class="meter-fill" style="width:${clampPct(percent)}%"></div></div>`;
-
-  const instrumentHead = (code, note) =>
-    `<div class="instrument-head"><span class="instrument-code">${esc(code)}</span><span class="instrument-note">${esc(note)}</span></div>`;
-
-  const gaugeRows = (provider) =>
-    provider.gauges
-      .map((gauge) => {
-        const cls = gauge.usedPercent >= 85 ? "m-bad" : gauge.usedPercent >= 60 ? "m-warn" : "m-good";
-        return `<div class="gauge-name">${esc(provider.name)} ${esc(gauge.label)}</div>` +
-          meter(gauge.usedPercent, cls) +
-          `<div class="gauge-pct">${gauge.usedPercent}%</div>` +
-          `<div class="gauge-reset">${esc(until(gauge.resetsAt))}</div>`;
-      })
-      .join("") +
-    // "100%" does not say whether the window is spent or the credits are gone.
-    (provider.note ? `<div class="gauge-note">${esc(provider.note)}</div>` : "");
-
-  const renderCapacity = (providers) => {
-    const el = document.getElementById("capacity");
-    const rows = (providers ?? [])
-      .map((provider) =>
-        provider.ok && provider.gauges.length > 0
-          ? gaugeRows(provider)
-          : `<div class="gauge-name">${esc(provider.name)}</div><div class="gauge-note">${esc(provider.ok ? "no active window" : provider.error)}</div>`,
-      )
-      .join("");
-    el.innerHTML = instrumentHead("Capacity", "limits used") +
-      (rows ? `<div class="gauges">${rows}</div>` : `<div class="instrument-empty">no providers reachable</div>`);
-  };
-
   const shippingRow = (pr, action) =>
     `<div class="row"><span class="key">${pr.ticketKey ? `<a href="${esc(pr.ticketUrl)}" target="_blank" rel="noopener">${esc(pr.ticketKey)}</a>` : "—"}</span>
       <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
@@ -489,8 +415,6 @@
     }
     document.getElementById("banners").innerHTML = banners.join("");
     document.getElementById("sync-dot").classList.toggle("warn", banners.length > 0);
-
-    renderCapacity(data.aiUsage);
 
     const shippingItems = data.shipping?.items ?? [];
     const visible = data.items.filter((item) => !hidden.has(item.id));

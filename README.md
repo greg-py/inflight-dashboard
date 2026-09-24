@@ -13,9 +13,6 @@ A local, read-only dashboard for ongoing work. It joins your assigned Jira ticke
 - work you have merged that is not in the last release yet;
 - work someone has deliberately frozen.
 
-Above the board sits one reading: how much of each coding agent's rate limit is
-spent.
-
 ## Signals
 
 Every row states both what is wrong and where the review stands, because those
@@ -149,11 +146,6 @@ transition is when the current status began. That is what turns
 6d` is worth chasing, and the same label at `0d` is not. A QA queue is slower
 than a review queue, so it gets a longer fuse before the same amber.
 
-Above the board sits one reading:
-
-- **Capacity** — how much of each coding agent's rate-limit window is spent, and when
-  it rolls over.
-
 `[SYSTEM]` in the masthead cycles the theme to `[LIGHT]` or `[DARK]` and remembers
 the choice in the browser; `[SYSTEM]` follows the OS.
 
@@ -215,29 +207,6 @@ A gateway failure returns an HTML error page rather than JSON. Banners report
 the status and, where the body actually says something, a short reason from it —
 never the page source.
 
-## Capacity probes
-
-Each provider is probed independently and fails soft — one that is unreachable shows
-its error in place of its bars and leaves the rest of the board alone.
-
-- **Claude** reads the OAuth credential Claude Code already keeps in your login
-  keychain (`Claude Code-credentials`) and calls the same `/api/oauth/usage` endpoint
-  the CLI's own `/usage` command uses. The token is used for that one request and is
-  never logged or stored. macOS asks once for permission to read the entry; denying it
-  just greys out the Claude rows.
-- **Codex** calls `account/rateLimits/read` on the Codex app-server protocol
-  (`codex app-server` over stdio), which reads the limit live from the server. This has
-  to be a live read rather than a local one: a single limit is shared by the CLI, the
-  IDE extension and the ChatGPT desktop app, and the session logs under
-  `~/.codex/sessions` only ever record the CLI's own traffic. A local reading goes
-  stale — and silently understates you — the moment you work anywhere else. When a
-  limit is spent, the server's reason (`workspace member credits depleted`) is printed
-  under the bars, because 100% alone does not say whether the window is used up or the
-  credits are gone.
-
-To add a provider, add a probe to `PROVIDERS` in `lib/ai-usage.js` returning
-`{ gauges, observedAt }`.
-
 ## Setup
 
 1. Install Node 18+ and authenticate the `gh` CLI.
@@ -269,6 +238,5 @@ temporarily unavailable.
 - `lib/config.js` — Jira/GitHub queries and display categorization settings
 - `lib/integrations.js` — Jira/GitHub fetchers and TTL cache
 - `lib/model.js` — pure joining, categorization, stacks, holds, and sorting logic
-- `lib/ai-usage.js` — AI capacity probes and their pure normalizers
 - `index.html` — single-page dashboard UI
 - `test.js` — domain and integration-mapping tests
