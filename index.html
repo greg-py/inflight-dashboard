@@ -278,11 +278,14 @@
     return `${Math.round(m / 1440)}d`;
   };
 
+  // A failed refresh stays on screen until one succeeds. Cleared after a few
+  // seconds, a board whose server had stopped looked healthy — green dot, old
+  // rows — with only a slowly growing "updated" age to say otherwise.
   const showError = (msg) => {
     const el = document.getElementById("error");
     el.textContent = msg;
     el.hidden = false;
-    setTimeout(() => (el.hidden = true), 8000);
+    document.getElementById("sync-dot").classList.add("warn");
   };
 
   const reasonSpan = (reason) => {

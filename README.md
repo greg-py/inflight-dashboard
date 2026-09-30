@@ -37,6 +37,15 @@ they say something about QA's backlog, not about the branch. The QA gate is
 still read from the check the CI verdict ignores, which is what makes
 `QA passed · ready to merge` meaningful.
 
+Runs pile up on a commit — a re-run, a workflow triggered again by a review —
+and only the newest describes the branch as it stands, so each check is judged
+by its newest run: a failure that has been re-run reads `CI running`, not
+`CI failing`. A check is its workflow as well as its name, since two workflows
+can each have a job of the same name and one passing must not hide the other
+failing. The QA gate reads its newest run the same way: the enforcer re-reads
+every QA comment and review each time it runs, so an approval arrives as a
+fresh passing run while the failures from before it stay listed on the commit.
+
 ## Review threads
 
 An unresolved thread is only worth showing if it still wants something from you,
@@ -154,11 +163,22 @@ the choice in the browser; `[SYSTEM]` follows the OS.
 A repo's latest release tag is compared against its default branch, and the pull
 request numbers in the intervening commit subjects (`… (#7502)`) are matched to your
 merged pull requests. Comparing trees rather than merge timestamps is what makes this
-exact — a timestamp says nothing about which commits a tag actually contains.
+exact — a timestamp says nothing about which commits a tag actually contains. Only
+the subject line counts: a squash commit's body lists the branch's own commits, and
+a number quoted there is a mention, not a merge.
+
+A pull request merged into another pull request's branch reaches the default branch
+inside that one's squash commit, under that one's number. So the chain is followed
+the way open stacks are rebuilt, and a stacked change ships when the change it was
+merged into does — or, while that one is still open, has not reached the default
+branch at all.
 
 A repo with no releases has no answer to give, so it is named in a note under the
 section rather than being quietly counted as fully shipped. The same goes for a
-release gap deeper than the compare endpoint's 250-commit limit.
+release gap deeper than `releaseGapCommitLimit`, and for a stacked change whose
+chain leads to a branch this board never saw (`2 stacked untraced`). A lookup that
+fails is a different thing from a repo that never released: it keeps that repo's
+last answer, and says `release lookup failed` only when there is none.
 
 ## The next action
 
@@ -184,7 +204,8 @@ board gets pasted wherever the reader is, not where the work is.
 
 Silence is a real answer. Work that is waiting on a reviewer, queued for QA,
 merged and waiting on a release, or held offers nothing, because a wrong prompt
-costs more than an absent one. Held work offers
+costs more than an absent one. So does a ticket you lead that nobody owns: its
+next move is finding it an owner, and no prompt does that. Held work offers
 nothing however actionable it looks — that is the same mistake as ranking it top
 of the board, one click further along. Drafts offer nothing either: a draft
 carries its problems as signals but never becomes anyone's move.
@@ -199,9 +220,22 @@ Hide/restore is a local display preference stored in the browser.
 GitHub allows a GraphQL request roughly ten seconds. Asking for every pull
 request's checks, threads and review timeline in one call sat right on that
 edge — slow on a good day and a 504 on a bad one — so the same work runs as
-parallel calls that each stay well inside the limit, joined by pull request
-number. Gateway failures are retried once (`upstreamRetries`) before anything
-reaches the banner, since they are nearly always momentary.
+parallel calls that each stay well inside the limit, joined by repo and pull
+request number. The checks get a call of their own, because telling one
+workflow's job from another's with the same name costs about as much as
+everything else about the pull request put together.
+
+Every call has a deadline (`upstreamTimeoutMs`), so one that hangs cannot hold
+the shared refresh, and every open tab, for minutes. Gateway failures, dropped
+connections and calls past their deadline are retried once (`upstreamRetries`)
+before anything reaches the banner, since they are nearly always momentary.
+Searches page past GitHub's fifty-result limit rather than stopping at it.
+
+Payloads are kept to what the board reads. Release gaps come from GraphQL, not
+the REST compare, which returns every changed file's patch — over a megabyte for a
+day's gap. Jira's changelog, which only ever feeds a QA wait's age, is fetched
+for the tickets in QA alone and for status changes only, rather than expanded on
+every ticket, which made the search thirteen times heavier.
 
 A gateway failure returns an HTML error page rather than JSON. Banners report
 the status and, where the body actually says something, a short reason from it —

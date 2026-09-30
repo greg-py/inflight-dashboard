@@ -30,7 +30,7 @@ import {
   promptForReview,
   promptForTicket,
 } from "./lib/model.js";
-import { mapReviewPr, failureReason } from "./lib/integrations.js";
+import { mapReviewPr, failureReason, fetchJira, fetchJiraIssues } from "./lib/integrations.js";
 import { CONFIG } from "./lib/config.js";
 
 test("extractTicketKeys finds keys in branch and title, case-insensitively, deduped", () => {
@@ -75,12 +75,65 @@ test("effectiveCi filters noise and combines repeated check runs", () => {
   assert.equal(effectiveCi([{ context: "deploy/staging", state: "FAILURE" }]), "failure");
 });
 
-test("qaGateState passes only when every gate run is green", () => {
+test("effectiveCi judges each check by its newest run, per workflow", () => {
+  // A failure that has since been re-run is running, not failing.
+  assert.equal(
+    effectiveCi([
+      { name: "Type Check", conclusion: "FAILURE", startedAt: "2026-09-29T10:00:00Z" },
+      { name: "Type Check", conclusion: null, status: "IN_PROGRESS", startedAt: "2026-09-29T10:20:00Z" },
+    ]),
+    "pending",
+  );
+  // And a pass followed by a failing re-run is a failure, whatever the order listed.
+  assert.equal(
+    effectiveCi([
+      { name: "Type Check", conclusion: "FAILURE", startedAt: "2026-09-29T11:00:00Z" },
+      { name: "Type Check", conclusion: "SUCCESS", startedAt: "2026-09-29T10:00:00Z" },
+    ]),
+    "failure",
+  );
+  // Two workflows each with a job of the same name are two checks: one passing
+  // must not hide the other failing.
+  const inWorkflow = (workflow, conclusion, startedAt) => ({
+    name: "Notify Deployment Ready",
+    conclusion,
+    startedAt,
+    checkSuite: { workflowRun: { workflow: { name: workflow } } },
+  });
+  assert.equal(
+    effectiveCi([
+      inWorkflow("JS/TS Pipeline", "FAILURE", "2026-09-29T10:00:00Z"),
+      inWorkflow("Docker Build Apps", "SUCCESS", "2026-09-29T10:05:00Z"),
+    ]),
+    "failure",
+  );
+  // A queued run has no start time yet, and is the newest attempt there is.
+  assert.equal(
+    effectiveCi([
+      { name: "Lint", conclusion: "FAILURE", startedAt: "2026-09-29T10:00:00Z" },
+      { name: "Lint", conclusion: null, status: "QUEUED", startedAt: null },
+    ]),
+    "pending",
+  );
+});
+
+test("the QA gate reads its newest run", () => {
   assert.equal(qaGateState([{ name: "QA Code Review", conclusion: "SUCCESS" }]), "passed");
+  // The enforcer runs again when QA approves; the failures from before the
+  // approval stay listed on the commit and must not outvote it.
   assert.equal(
     qaGateState([
-      { name: "QA Code Review", conclusion: "FAILURE" },
-      { name: "QA Code Review", conclusion: "SUCCESS" },
+      { name: "QA Code Review", conclusion: "FAILURE", startedAt: "2026-09-29T21:06:00Z" },
+      { name: "QA Code Review", conclusion: "SUCCESS", startedAt: "2026-09-29T22:30:00Z" },
+      { name: "QA Code Review", conclusion: "FAILURE", startedAt: "2026-09-29T21:11:00Z" },
+    ]),
+    "passed",
+  );
+  // A draft passes the enforcer automatically; marking it ready fails it again.
+  assert.equal(
+    qaGateState([
+      { name: "QA Code Review", conclusion: "FAILURE", startedAt: "2026-09-30T13:36:00Z" },
+      { name: "QA Code Review", conclusion: "SUCCESS", startedAt: "2026-09-30T13:22:00Z" },
     ]),
     "blocked",
   );
@@ -782,8 +835,10 @@ test("prNumbersInCommits reads squash-merge subjects", () => {
     "update plock (#7508)",
     "Merge branch 'master' into thing",
     null,
+    // A squash body quoting another pull request is a mention, not a merge.
+    "Tidy the release notes (#7510)\n\n* Follow-up to (#7401)",
   ]);
-  assert.deepEqual([...numbers].sort((a, b) => a - b), [7502, 7508]);
+  assert.deepEqual([...numbers].sort((a, b) => a - b), [7502, 7508, 7510]);
 });
 
 test("buildShipping lists merged work absent from the last release", () => {
@@ -794,7 +849,7 @@ test("buildShipping lists merged work absent from the last release", () => {
   ];
   const releases = new Map([
     ["o/PerformYard", { tag: "v29.37.0", ahead: 1, truncated: false, numbers: new Set([7502]) }],
-    ["o/Logan", { error: "GitHub latest 404" }],
+    ["o/Logan", { none: true }],
   ]);
   const shipping = buildShipping(merged, releases);
   assert.deepEqual(shipping.items.map((item) => item.number), [7502]);
@@ -803,6 +858,47 @@ test("buildShipping lists merged work absent from the last release", () => {
   // A repo with no release is named, never silently counted as fully shipped.
   assert.equal(shipping.note, "Logan: no release to compare");
   assert.equal(buildShipping([], new Map()).note, null);
+});
+
+test("a release lookup that failed is not a repo that never released", () => {
+  const shipping = buildShipping(
+    [{ number: 12, title: "t", url: "u", repo: "o/Logan", mergedAt: "2026-09-11T20:00:00Z", headRefName: "y" }],
+    new Map([["o/Logan", { error: "GitHub GraphQL: no answer in 15s" }]]),
+  );
+  assert.equal(shipping.items.length, 0);
+  assert.equal(shipping.note, "Logan: release lookup failed");
+});
+
+test("a pull request merged into its parent's branch ships when the parent does", () => {
+  const merged = (number, head, base, extra = {}) => ({
+    number,
+    title: `PY-${14000 + number} change ${number}`,
+    url: `u${number}`,
+    repo: "o/app",
+    mergedAt: `2026-09-${10 + number}T00:00:00Z`,
+    headRefName: head,
+    baseRefName: base,
+    baseIsDefault: base === "master",
+    ...extra,
+  });
+  const release = (numbers) =>
+    new Map([["o/app", { tag: "v2", ahead: 1, truncated: false, numbers: new Set(numbers) }]]);
+  const stack = [merged(1, "root", "master"), merged(2, "mid", "root"), merged(3, "top", "mid")];
+  // The root's squash commit carries only its own number, and brings the
+  // whole chain with it.
+  assert.deepEqual(
+    buildShipping(stack, release([1])).items.map((item) => item.number).sort(),
+    [1, 2, 3],
+  );
+  assert.deepEqual(buildShipping(stack, release([])).items, []);
+  // Merged into a branch that is still open: not on the default branch yet.
+  const open = [{ repo: "o/app", headRefName: "open-parent" }];
+  const intoOpen = buildShipping([merged(4, "child", "open-parent")], release([]), open);
+  assert.deepEqual(intoOpen.items.map((item) => item.number), [4]);
+  // A chain that leads nowhere known is counted, not dropped without a word.
+  const lost = buildShipping([merged(5, "orphan", "someone-elses-branch")], release([]));
+  assert.equal(lost.items.length, 0);
+  assert.equal(lost.note, "app: 1 stacked untraced");
 });
 
 test("buildShipping flags a release gap too deep for the compare endpoint", () => {
@@ -842,12 +938,22 @@ test("a stack is rebuilt from base branches and every link names its root", () =
     stackPr(9, "solo", "master"),
   ]);
   assert.deepEqual(
-    [...stacks].map(([number, stack]) => [number, stack.depth, stack.root, stack.behind]),
-    [[1, 0, 1, 2], [2, 1, 1, 0], [3, 2, 1, 0], [9, 0, 9, 0]],
+    [...stacks].map(([key, stack]) => [key, stack.depth, stack.root, stack.behind]),
+    [["org/app#1", 0, 1, 2], ["org/app#2", 1, 1, 0], ["org/app#3", 2, 1, 0], ["org/app#9", 0, 9, 0]],
   );
   // The root names what is riding on it; the links name what they wait for.
-  assert.equal(stacks.get(1).blockedBy, null);
-  assert.equal(stacks.get(3).blockedBy, 1);
+  assert.equal(stacks.get("org/app#1").blockedBy, null);
+  assert.equal(stacks.get("org/app#3").blockedBy, 1);
+});
+
+test("pull requests that share a number in different repos are different pull requests", () => {
+  const [app, other] = withStacks([
+    stackPr(7, "a", "master"),
+    stackPr(7, "b", "a", { repo: "org/other" }),
+  ]);
+  // Same number, same branch name underneath — but the base lives in another repo.
+  assert.equal(app.stack.behind, 0);
+  assert.equal(other.stack.blockedBy, null);
 });
 
 test("a pull request stacked on an unmerged one never claims to be mergeable", () => {
@@ -882,8 +988,8 @@ test("a base that is already merged reads as unstacked, not as blocked forever",
   // to the default branch shortly, and until it does "blocked by something
   // already merged" would be a lie.
   const stacks = buildStacks([stackPr(2, "b", "merged-parent")]);
-  assert.equal(stacks.get(2).blockedBy, null);
-  assert.equal(stacks.get(2).depth, 0);
+  assert.equal(stacks.get("org/app#2").blockedBy, null);
+  assert.equal(stacks.get("org/app#2").depth, 0);
 });
 
 test("a cycle in base branches terminates instead of hanging the board", () => {
@@ -1154,6 +1260,9 @@ test("work I lead but nobody owns is its own lane, never mixed into my queue", (
   assert.equal(section("PY-LEAD"), "lead");
   assert.equal(items.find((item) => item.key === "PY-LEAD").leadUnassigned, true);
   assert.equal(items.find((item) => item.key === "PY-MINE-TODO").leadUnassigned, false);
+  // Unowned work wants an owner, not an implementation: no prompt does that.
+  assert.equal(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: true }), null);
+  assert.equal(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: false }).skill, "implement-ticket");
 });
 
 test("the lead query never claims work someone else is already assigned", () => {
@@ -1164,4 +1273,71 @@ test("the lead query never claims work someone else is already assigned", () => 
   // Unbounded this is a junk drawer of tickets named years ago, so it is windowed.
   assert.match(CONFIG.jiraLeadUnassignedJql, /updated >= -%DAYS%d/);
   assert.ok(CONFIG.leadUnassignedLookbackDays > 0);
+});
+
+// Stands in for the network: each call takes the next scripted answer.
+const withFetch = async (answers, run) => {
+  const original = globalThis.fetch;
+  const calls = [];
+  const env = { email: process.env.JIRA_EMAIL, token: process.env.JIRA_API_TOKEN };
+  process.env.JIRA_EMAIL ??= "me@example.com";
+  process.env.JIRA_API_TOKEN ??= "token";
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    const answer = answers.shift();
+    if (answer instanceof Error) throw answer;
+    return { ok: true, status: 200, json: async () => answer, text: async () => JSON.stringify(answer) };
+  };
+  try {
+    return await run(calls);
+  } finally {
+    globalThis.fetch = original;
+    if (env.email === undefined) delete process.env.JIRA_EMAIL;
+    if (env.token === undefined) delete process.env.JIRA_API_TOKEN;
+  }
+};
+
+test("a dropped connection is retried, and every call carries a deadline", async () => {
+  await withFetch([new TypeError("fetch failed"), { issues: [{ key: "PY-1" }] }], async (calls) => {
+    const issues = await fetchJiraIssues("project = PY");
+    assert.deepEqual(issues.map((issue) => issue.key), ["PY-1"]);
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every((call) => call.init.signal instanceof AbortSignal));
+  });
+  // Past the retry budget it reaches the banner named, not as a bare TypeError.
+  const dropped = Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } });
+  await withFetch([dropped, dropped], async () => {
+    await assert.rejects(fetchJiraIssues("project = PY"), /Jira: ECONNRESET/);
+  });
+});
+
+test("status history is fetched only for tickets whose QA wait shows it", async () => {
+  const issue = (id, key, status) => ({ id, key, fields: { status: { name: status } } });
+  await withFetch(
+    [
+      { issues: [issue("1", "PY-1", "In Progress"), issue("2", "PY-2", "In Testing")] },
+      {
+        issueChangeLogs: [
+          { issueId: "2", changeHistories: [{ created: 1790104838736, items: [{ field: "status" }] }] },
+        ],
+      },
+    ],
+    async (calls) => {
+      const issues = await fetchJira();
+      // The search no longer drags every ticket's whole history along with it.
+      assert.equal(new URL(calls[0].url).searchParams.has("expand"), false);
+      // Only the ticket in QA is asked about, and only its status changes.
+      assert.match(calls[1].url, /changelog\/bulkfetch$/);
+      assert.deepEqual(JSON.parse(calls[1].init.body).issueIdsOrKeys, ["PY-2"]);
+      assert.deepEqual(JSON.parse(calls[1].init.body).fieldIds, ["status"]);
+      // Epoch milliseconds come back as the ISO the rest of the board reads.
+      assert.equal(statusSince(issues[1].changelog), "2026-09-22T19:20:38.736Z");
+      assert.equal(issues[0].changelog, undefined);
+    },
+  );
+  // With nobody in QA there is nothing to ask.
+  await withFetch([{ issues: [issue("1", "PY-1", "In Progress")] }], async (calls) => {
+    await fetchJira();
+    assert.equal(calls.length, 1);
+  });
 });
