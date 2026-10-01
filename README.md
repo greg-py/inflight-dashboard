@@ -189,10 +189,24 @@ the thing worth knowing before you click:
 | Row | Action |
 |---|---|
 | Review feedback outstanding — changes requested, open threads, or bot findings | `/address-review` |
-| Conflicts with its base | `/resolve-conflicts` |
-| Failing build | a prompt, since no skill covers this one |
+| Conflicts with its base | `/resolve-conflicts`, with `--stack` when the change sits in a stack |
+| Failing build, or CI stuck for hours | `/fix-ci`, with `--stack` when the change sits in a stack |
 | Assigned ticket with no pull request | `/implement-ticket` |
+| A bug you lead that nobody owns | `/diagnose-bug` |
+| Any other ticket you lead that nobody owns, not yet groomed | `/jira-ticket-groomer` |
 | A review someone asked of you | `/deep-review`, or `/verify-review` once you have reviewed it |
+| Merged, not shipped (on the section) | `/production-release check` |
+
+A stacked change's conflict or red build is never only its own: the fix has to reach
+every pull request after it, so the prompt asks the skill to work the whole stack.
+A ticket you lead that nobody owns is not yours to implement; your move as its lead is
+to find a bug's cause or to groom the rest, and once it carries engineering notes all
+that is left is finding it an owner, which no prompt does.
+
+The masthead also carries the recurring prompts that need no row — `/standup-prep`,
+`/weekly-pod-update` and `/sprint-retro-brainstorm` for the pod in `CONFIG.pod`. Skills
+that need something only you know (who asked, what to query, what to file) are not
+offered: there is nothing on the board to build their prompt from.
 
 Feedback outranks the rest: it is the only one of the three another person is
 waiting on, and answering it usually lands the commits that clear the others.
@@ -203,9 +217,8 @@ default it to whatever repo the shell is sitting in and a prompt copied off this
 board gets pasted wherever the reader is, not where the work is.
 
 Silence is a real answer. Work that is waiting on a reviewer, queued for QA,
-merged and waiting on a release, or held offers nothing, because a wrong prompt
-costs more than an absent one. So does a ticket you lead that nobody owns: its
-next move is finding it an owner, and no prompt does that. Held work offers
+or held offers nothing, because a wrong prompt costs more than an absent one. So
+does a groomed ticket you lead that nobody owns. Held work offers
 nothing however actionable it looks — that is the same mistake as ranking it top
 of the board, one click further along. Drafts offer nothing either: a draft
 carries its problems as signals but never becomes anyone's move.

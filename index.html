@@ -160,6 +160,10 @@
   /* Borrows the row-action look but is always live, so it must come after the
      .act defaults above. */
   .theme-toggle { opacity: 1; pointer-events: auto; letter-spacing: .06em; }
+  /* Prompts that belong to a section or to the day rather than to a row are
+     always live, like the theme toggle. */
+  .section-head .act.copy, .routines .act.copy { opacity: 1; pointer-events: auto; }
+  .routines { display: inline-flex; gap: 8px; margin-right: 12px; }
   /* Sits inline on the row it belongs to rather than in the action column, so
      a row with no honest next action loses nothing but the button. */
   .act.copy { margin-left: 3px; color: var(--development); }
@@ -203,6 +207,7 @@
   <header class="masthead">
     <h1><span>IN</span><span class="joiner">–</span><em>FLIGHT</em></h1>
     <div class="masthead-status">
+      <span class="routines" id="routines"></span>
       <button type="button" class="act theme-toggle" id="theme-toggle" aria-live="polite">system</button>
       <span class="sync-status"><span class="sync-dot" id="sync-dot"></span><span id="refreshed" aria-live="polite">syncing…</span></span>
     </div>
@@ -402,9 +407,9 @@
     return rows;
   };
 
-  const card = (el, code, label, rows, emptyText, total = rows.length) => {
+  const card = (el, code, label, rows, emptyText, total = rows.length, headAction = null) => {
     const count = `${total} ${total === 1 ? "item" : "items"}`;
-    el.innerHTML = `<h2 class="section-head"><span class="section-code">${code}</span><span class="section-title">${label}</span><span class="count">${count}</span></h2>` +
+    el.innerHTML = `<h2 class="section-head"><span class="section-code">${code}</span><span class="section-title">${label}${actionButton(headAction)}</span><span class="count">${count}</span></h2>` +
       (rows.length ? rows.join("") : `<div class="empty">${emptyText}</div>`);
   };
 
@@ -417,6 +422,7 @@
       }
     }
     document.getElementById("banners").innerHTML = banners.join("");
+    document.getElementById("routines").innerHTML = (data.routines ?? []).map(actionButton).join("");
     document.getElementById("sync-dot").classList.toggle("warn", banners.length > 0);
 
     const shippingItems = data.shipping?.items ?? [];
@@ -433,7 +439,8 @@
     const shippingNote = data.shipping?.error ?? data.shipping?.note;
     card(document.getElementById("card-shipping"), "07 / shipping", "Merged, not shipped",
       visibleShipping.map((pr) => shippingRow(pr, "hide")),
-      data.shipping?.error ? esc(data.shipping.error) : "everything merged is released");
+      data.shipping?.error ? esc(data.shipping.error) : "everything merged is released",
+      visibleShipping.length, visibleShipping.length > 0 ? data.shipping?.action : null);
     if (shippingNote && visibleShipping.length > 0) {
       document.getElementById("card-shipping").insertAdjacentHTML(
         "beforeend", `<div class="section-note">${esc(shippingNote)}</div>`);

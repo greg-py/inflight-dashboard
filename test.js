@@ -29,6 +29,8 @@ import {
   promptForPr,
   promptForReview,
   promptForTicket,
+  promptForShipping,
+  routinePrompts,
 } from "./lib/model.js";
 import { mapReviewPr, failureReason, fetchJira, fetchJiraIssues } from "./lib/integrations.js";
 import { CONFIG } from "./lib/config.js";
@@ -1122,13 +1124,34 @@ test("feedback already answered by a push is not re-offered as work", () => {
   assert.equal(promptForPr(answered), null);
 });
 
-test("a failing build has no skill, so the prompt carries what one would", () => {
-  const action = promptForPr({ number: 7486, repo: "PerformYard/PerformYard", openThreads: 0, botThreads: 0, ci: "failure", mergeable: "MERGEABLE" });
-  assert.equal(action.skill, "fix CI");
-  assert.match(action.prompt, /PR 7486 in PerformYard\/PerformYard/);
-  assert.match(action.prompt, /gh run view --log-failed/);
-  // The gate that waits on a person is named so it is not chased as a defect.
-  assert.match(action.prompt, /QA Code Review/);
+test("a failing or stuck build goes to fix-ci", () => {
+  const pr = (extra) => ({ number: 7486, repo: "PerformYard/PerformYard", openThreads: 0, botThreads: 0, ci: "success", mergeable: "MERGEABLE", ...extra });
+  assert.deepEqual(promptForPr(pr({ ci: "failure" })), {
+    skill: "fix-ci",
+    prompt: "/fix-ci 7486 --repo PerformYard/PerformYard",
+  });
+  // Pending for hours is stuck, not running — the same skill reruns it.
+  assert.equal(promptForPr(pr({ ci: "pending", ciStuckHours: 3 })).skill, "fix-ci");
+  assert.equal(promptForPr(pr({ ci: "pending", ciStuckHours: 0 })), null);
+});
+
+test("a stacked pull request's conflicts and CI are fixed across the whole stack", () => {
+  const pr = (extra) => ({ number: 7392, repo: "PerformYard/PerformYard", openThreads: 0, botThreads: 0, ci: "success", mergeable: "MERGEABLE", ...extra });
+  const root = { blockedBy: null, depth: 0, behind: 3 };
+  const middle = { blockedBy: 7392, depth: 1, behind: 0 };
+  assert.equal(
+    promptForPr(pr({ mergeable: "CONFLICTING", stack: root })).prompt,
+    "/resolve-conflicts 7392 --stack --repo PerformYard/PerformYard",
+  );
+  assert.equal(
+    promptForPr(pr({ ci: "failure", stack: middle })).prompt,
+    "/fix-ci 7392 --stack --repo PerformYard/PerformYard",
+  );
+  // A pull request alone on its base has no stack to cascade.
+  assert.equal(
+    promptForPr(pr({ mergeable: "CONFLICTING", stack: { blockedBy: null, depth: 0, behind: 0 } })).prompt,
+    "/resolve-conflicts 7392 --repo PerformYard/PerformYard",
+  );
 });
 
 test("a review you have already given is a second pass, not a first", () => {
@@ -1260,8 +1283,17 @@ test("work I lead but nobody owns is its own lane, never mixed into my queue", (
   assert.equal(section("PY-LEAD"), "lead");
   assert.equal(items.find((item) => item.key === "PY-LEAD").leadUnassigned, true);
   assert.equal(items.find((item) => item.key === "PY-MINE-TODO").leadUnassigned, false);
-  // Unowned work wants an owner, not an implementation: no prompt does that.
-  assert.equal(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: true }), null);
+  // Unowned work is not mine to implement. As its lead, my move is to groom it
+  // or, for a bug, to find the cause; once groomed, only staffing is left.
+  assert.deepEqual(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: true, issueType: "Story", groomed: false }), {
+    skill: "jira-ticket-groomer",
+    prompt: "/jira-ticket-groomer PY-1",
+  });
+  assert.deepEqual(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: true, issueType: "Bug", groomed: false }), {
+    skill: "diagnose-bug",
+    prompt: "/diagnose-bug PY-1",
+  });
+  assert.equal(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: true, issueType: "Story", groomed: true }), null);
   assert.equal(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: false }).skill, "implement-ticket");
 });
 
@@ -1341,3 +1373,31 @@ test("status history is fetched only for tickets whose QA wait shows it", async 
     assert.equal(calls.length, 1);
   });
 });
+
+test("unreleased merged work offers the release check, and nothing does when it is empty", () => {
+  assert.deepEqual(promptForShipping({ items: [{ number: 1 }] }), {
+    skill: "production-release",
+    prompt: "/production-release check",
+  });
+  assert.equal(promptForShipping({ items: [] }), null);
+  assert.equal(promptForShipping(null), null);
+});
+
+test("routines carry the pod so the prompt runs as pasted", () => {
+  const routines = routinePrompts("Street Sharks");
+  assert.deepEqual(routines.map((routine) => routine.skill), ["standup-prep", "weekly-pod-update", "sprint-retro-brainstorm"]);
+  assert.equal(routines[1].prompt, '/weekly-pod-update "Street Sharks"');
+  assert.equal(routines[2].prompt, '/sprint-retro-brainstorm --pod "Street Sharks"');
+});
+
+test("the lead lane carries what its prompt is decided on", () => {
+  const issue = (key, extra) => ({
+    key,
+    fields: { summary: key, status: { name: "To Do", statusCategory: { key: "new" } }, issuetype: { name: "Bug", subtask: false }, updated: "2026-09-01T00:00:00Z", ...extra },
+  });
+  const [item] = buildItems([], [], [], [issue("PY-9", { customfield_10132: { type: "doc", content: [] } })]);
+  assert.equal(item.issueType, "Bug");
+  assert.equal(item.groomed, true);
+  assert.equal(item.action.skill, "diagnose-bug");
+});
+

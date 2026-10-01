@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT, CONFIG } from "./lib/config.js";
-import { buildItems } from "./lib/model.js";
+import { buildItems, promptForShipping, routinePrompts } from "./lib/model.js";
 import { getUpstream } from "./lib/integrations.js";
 
 const buildSnapshot = async () => {
@@ -18,7 +18,8 @@ const buildSnapshot = async () => {
       upstream.leadIssues,
     ),
     reviewRequests: upstream.github.reviewRequests,
-    shipping: upstream.shipping,
+    shipping: { ...upstream.shipping, action: promptForShipping(upstream.shipping) },
+    routines: routinePrompts(CONFIG.pod),
   };
 };
 
