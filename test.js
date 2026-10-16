@@ -31,6 +31,10 @@ import {
   promptForTicket,
   promptForShipping,
   routinePrompts,
+  pastReviewers,
+  requestedOfViewerAt,
+  ciPendingSince,
+  ciStuckHours,
 } from "./lib/model.js";
 import { mapReviewPr, failureReason, fetchJira, fetchJiraIssues } from "./lib/integrations.js";
 import { CONFIG } from "./lib/config.js";
@@ -157,8 +161,11 @@ const basePr = {
   openThreads: 0,
   botThreads: 0,
   qaGate: null,
-  lastCommitAt: "2026-08-20T10:00:00Z",
+  pushedAt: "2026-08-20T10:00:00Z",
   changesRequestedAt: null,
+  // Someone is on the hook, so the fixture is nobody's move until a test says
+  // otherwise.
+  pendingReviewers: [{ login: "alice", waitingDays: 1 }],
 };
 
 test("categorizePr surfaces defects and settled merge-ready work", () => {
@@ -179,6 +186,8 @@ test("categorizePr surfaces defects and settled merge-ready work", () => {
   assert.ok(draft.reasons.includes("draft"));
   // Nobody is waiting to review a draft, so it gets no awaiting label either.
   assert.ok(!draft.reasons.some((reason) => reason.startsWith("awaiting")));
+  // How long since anyone pushed to it travels with the label.
+  assert.ok(categorizePr({ ...basePr, isDraft: true, pushedDaysAgo: 17 }).reasons.includes("draft · 17d"));
   // A real problem on a draft still counts as a defect.
   assert.equal(categorizePr({ ...basePr, isDraft: true, ci: "failure" }).defect, true);
 
@@ -194,8 +203,17 @@ test("categorizePr surfaces defects and settled merge-ready work", () => {
     ),
   );
   assert.equal(categorizePr({ ...basePr, reviewDecision: "APPROVED", ci: "pending" }).bucket, "waiting");
-  // basePr has nobody requested, which is its own signal.
-  assert.ok(categorizePr(basePr).reasons.includes("no reviewer requested · 2d"));
+  // Nobody requested is its own signal, and nobody else will act on it.
+  const unasked = categorizePr({ ...basePr, pendingReviewers: [] });
+  assert.ok(unasked.reasons.includes("no reviewer requested · 2d"));
+  assert.equal(unasked.bucket, "needs_you");
+  assert.equal(unasked.defect, false);
+  // Timed from when it was marked ready, not when it was opened as a draft.
+  assert.ok(
+    categorizePr({ ...basePr, pendingReviewers: [], ageDays: 9, readyDays: 1 }).reasons.includes(
+      "no reviewer requested · 1d",
+    ),
+  );
   assert.ok(
     categorizePr({ ...basePr, pendingReviewers: [{ login: "alice", waitingDays: 4 }] })
       .reasons.includes("awaiting @alice · 4d"),
@@ -408,8 +426,8 @@ test("a thread opened after the fix lands is not answered by it", () => {
     ...basePr,
     reviewDecision: "CHANGES_REQUESTED",
     changesRequestedAt: "2026-09-10T14:00:00Z",
-    lastCommitAt: "2026-09-10T20:00:00Z",
-    lastCommitDaysAgo: 1,
+    pushedAt: "2026-09-10T20:00:00Z",
+    pushedDaysAgo: 1,
     openThreads: 1,
     pendingReviewers: [{ login: "alice", waitingDays: 3 }],
   };
@@ -427,20 +445,19 @@ test("a thread opened after the fix lands is not answered by it", () => {
 
 test("re-review names the reviewer and times it from the push, not the request", () => {
   const pr = {
-    lastCommitDaysAgo: 1,
+    pushedDaysAgo: 1,
     // alice was requested 6 days ago, but the fix landed 1 day ago — the wait
     // that matters started with the push.
     pendingReviewers: [{ login: "alice", waitingDays: 6 }, { login: "bob", waitingDays: 2 }],
   };
   assert.equal(reReviewReason(pr), "re-review @alice +1 · 1d");
+  // Requesting changes took the reviewer off the list; a push tells nobody, so
+  // until they are asked again the move is yours.
   assert.equal(
-    reReviewReason({ lastCommitDaysAgo: 3, pendingReviewers: [] }),
-    "changes pushed · awaiting re-review · 3d",
+    reReviewReason({ pushedDaysAgo: 3, pendingReviewers: [], pastReviewers: [{ login: "bob" }] }),
+    "re-request @bob · 3d",
   );
-  assert.equal(
-    reReviewReason({ lastCommitDaysAgo: null, pendingReviewers: [] }),
-    "changes pushed · awaiting re-review",
-  );
+  assert.equal(reReviewReason({ pushedDaysAgo: null, pendingReviewers: [] }), "re-request review");
 });
 
 test("human-gated checks never read as a broken build", () => {
@@ -463,13 +480,17 @@ test("changes pushed after review put the ball back in the reviewer's court", ()
     reviewDecision: "CHANGES_REQUESTED",
     openThreads: 2,
     changesRequestedAt: "2026-08-28T17:52:07Z",
-    lastCommitAt: "2026-08-28T18:40:44Z",
+    pushedAt: "2026-08-28T18:40:44Z",
   };
   assert.equal(changesAddressed(addressed), true);
   const result = categorizePr(addressed);
   assert.equal(result.bucket, "waiting");
-  assert.ok(result.reasons.includes("changes pushed · awaiting re-review"));
+  assert.ok(result.reasons.includes("re-review @alice"));
   assert.ok(!result.reasons.some((reason) => reason.includes("open thread")));
+  // Pushed, but nobody asked to look again: still yours.
+  const unasked = categorizePr({ ...addressed, pendingReviewers: [], pastReviewers: [{ login: "carol" }] });
+  assert.equal(unasked.bucket, "needs_you");
+  assert.ok(unasked.reasons.includes("re-request @carol"));
 });
 
 test("stuck CI moves otherwise waiting work into needs-you", () => {
@@ -483,15 +504,24 @@ test("stuck CI moves otherwise waiting work into needs-you", () => {
 });
 
 test("sectionFor respects PR state and QA holds", () => {
+  const ticket = (status) => ({ key: "PY-1", status, statusCategory: "indeterminate" });
   assert.equal(
-    sectionFor({ status: "In Progress", prs: [{ bucket: "needs_you", defect: true }] }),
+    sectionFor({ ...ticket("In Progress"), prs: [{ bucket: "needs_you", defect: true }] }),
     "needs_you",
   );
-  const merge = { bucket: "needs_you", defect: false };
-  assert.equal(sectionFor({ status: "In Testing", prs: [merge] }), "waiting");
-  assert.equal(sectionFor({ status: "In Testing", prs: [{ ...merge, qaGate: "passed" }] }), "needs_you");
-  assert.equal(sectionFor({ status: "READY TO MERGE", prs: [merge] }), "needs_you");
+  // What an approval means is settled against the ticket when it is categorized.
+  const approved = { ...basePr, reviewDecision: "APPROVED" };
+  const placed = (status, pr = approved) =>
+    sectionFor({ ...ticket(status), prs: [{ ...pr, ...categorizePr(pr, { status, statusDays: 2 }) }] });
+  assert.equal(placed("In Testing"), "waiting");
+  assert.equal(placed("In Testing", { ...approved, qaGate: "passed" }), "needs_you");
+  assert.equal(placed("READY TO MERGE"), "needs_you");
+  assert.equal(placed("In Code Review"), "needs_you");
+  assert.deepEqual(categorizePr(approved, { status: "In Testing", statusDays: 2 }).reasons, ["approved · in QA · 2d", "CI green"]);
+  assert.deepEqual(categorizePr(approved, { status: "In Code Review" }).reasons, ["approved · move to QA", "CI green"]);
   assert.equal(sectionFor({ prs: [], status: "In Testing" }), "waiting");
+  assert.equal(sectionFor({ prs: [], status: "In Design Review" }), "waiting");
+  assert.equal(sectionFor({ prs: [], status: "NEED CLARIFICATION", statusCategory: "new" }), "waiting");
   // Started and not-started split on the status category, not the name.
   assert.equal(sectionFor({ prs: [], status: "TO DO", statusCategory: "new" }), "to_do");
   assert.equal(sectionFor({ prs: [], status: "In Progress", statusCategory: "indeterminate" }), "in_progress");
@@ -507,10 +537,10 @@ test("statusRank follows the delivery pipeline", () => {
   // at the top of its section.
   const ordered = [
     "READY TO MERGE",
-    "Blocked",
     "In Testing",
     "Ready To Test",
     "In Code Review",
+    "In Design Review",
     "In Progress",
     "READY",
     "TO DO",
@@ -544,9 +574,6 @@ const prFixture = (overrides = {}) => ({
   headRefName: "PY-13548-calendar",
   url: "https://github.com/PerformYard/PerformYard/pull/7364",
   updatedAt: "2026-08-25T12:00:00Z",
-  bucket: "waiting",
-  defect: false,
-  reasons: ["awaiting review · 2d"],
   ...overrides,
 });
 
@@ -590,7 +617,7 @@ test("buildItems annotates merged work and relabels QA-held approvals", () => {
   assert.equal(items[0].mergedPrs.length, 1);
   const held = buildItems(
     [jiraIssue("PY-13548", { status: { name: "Ready To Test", statusCategory: { key: "indeterminate" } } })],
-    [prFixture({ bucket: "needs_you", reasons: ["approved · ready to merge", "CI green"] })],
+    [prFixture({ reviewDecision: "APPROVED" })],
   );
   assert.equal(held[0].section, "waiting");
   assert.deepEqual(held[0].prs[0].reasons, ["approved · awaiting QA", "CI green"]);
@@ -598,15 +625,54 @@ test("buildItems annotates merged work and relabels QA-held approvals", () => {
   // Once QA has actually started, the work is not still queued for it.
   const inQa = buildItems(
     [jiraIssue("PY-13549", { status: { name: "In Testing", statusCategory: { key: "indeterminate" } } })],
-    [prFixture({ headRefName: "PY-13549-x", bucket: "needs_you", reasons: ["approved · ready to merge", "CI green"] })],
+    [prFixture({ headRefName: "PY-13549-x", reviewDecision: "APPROVED" })],
   );
   assert.deepEqual(inQa[0].prs[0].reasons, ["approved · in QA", "CI green"]);
+});
+
+test("a ticket whose pull requests are all drafts goes where its status puts it", () => {
+  const draft = (key) => prFixture({ title: `${key} prototype`, headRefName: `${key}-proto`, isDraft: true, ci: "failure" });
+  const ticket = (key, name, category) =>
+    jiraIssue(key, { status: { name, statusCategory: { key: category } } });
+  const items = buildItems(
+    [
+      // Research handed over with its prototype still a draft is not being built.
+      ticket("PY-1", "READY TO MERGE", "indeterminate"),
+      // Moved back to TO DO while a decision is pending: queued, not in progress.
+      ticket("PY-2", "TO DO", "new"),
+      ticket("PY-3", "In Progress", "indeterminate"),
+    ],
+    [draft("PY-1"), draft("PY-2"), draft("PY-3")],
+  );
+  const section = (key) => items.find((item) => item.key === key).section;
+  assert.equal(section("PY-1"), "waiting");
+  assert.equal(section("PY-2"), "to_do");
+  assert.equal(section("PY-3"), "in_progress");
+  // None of them offers to implement work that already has a pull request.
+  assert.ok(items.every((item) => item.action === null));
+});
+
+test("a draft with no ticket of yours parks once nobody pushes to it", () => {
+  const orphan = (number, pushedDaysAgo) =>
+    prFixture({ number, title: "Prototype", headRefName: `proto-${number}`, isDraft: true, pushedDaysAgo });
+  const items = buildItems([], [orphan(1, 2), orphan(2, CONFIG.parkedDraftDays), orphan(3, undefined)]);
+  const section = (number) => items.find((item) => item.id.endsWith(`#${number}`)).section;
+  assert.equal(section(1), "in_progress");
+  assert.equal(section(2), "parked");
+  // An unknown push time never hides anything.
+  assert.equal(section(3), "in_progress");
+  // A key that is not one of mine is linked, never adopted as the row's ticket.
+  const [foreign] = buildItems([], [prFixture({ title: "[PROTOTYPE] PY-8339: Billing", headRefName: "billing", isDraft: true })]);
+  assert.equal(foreign.key, null);
+  assert.equal(foreign.ticketKey, "PY-8339");
+  assert.match(foreign.url, /browse\/PY-8339$/);
+  assert.equal(foreign.action, null);
 });
 
 test("work whose every PR is still a draft sits in progress, not needs-you", () => {
   const draftOnly = buildItems(
     [],
-    [prFixture({ number: 700, title: "Prototype", headRefName: "proto", isDraft: true, ...categorizePr({ ...basePr, isDraft: true, ci: "failure", mergeable: "CONFLICTING" }) })],
+    [prFixture({ number: 700, title: "Prototype", headRefName: "proto", isDraft: true, ci: "failure", mergeable: "CONFLICTING" })],
   );
   // A draft is started work, so it belongs with what is in progress.
   assert.equal(draftOnly[0].section, "in_progress");
@@ -617,8 +683,8 @@ test("work whose every PR is still a draft sits in progress, not needs-you", () 
   const mixed = buildItems(
     [jiraIssue("PY-14000")],
     [
-      prFixture({ number: 1, headRefName: "PY-14000-a", isDraft: true, bucket: "waiting", defect: false }),
-      prFixture({ number: 2, headRefName: "PY-14000-b", bucket: "needs_you", defect: true }),
+      prFixture({ number: 1, headRefName: "PY-14000-a", isDraft: true }),
+      prFixture({ number: 2, headRefName: "PY-14000-b", ci: "failure" }),
     ],
   );
   assert.equal(mixed[0].section, "needs_you");
@@ -730,7 +796,7 @@ test("dashboard keeps work queues primary instead of rendering summary metrics",
   const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.equal(ui.includes('id="overview"'), false);
   assert.equal(ui.includes('class="metric'), false);
-  for (const queue of ["needs_you", "waiting", "reviews", "in_progress", "to_do", "lead", "shipping", "held"]) {
+  for (const queue of ["needs_you", "waiting", "reviews", "in_progress", "to_do", "lead", "shipping", "held", "parked"]) {
     assert.equal(ui.includes(`id="card-${queue}"`), true, `${queue} queue should remain visible`);
   }
 });
@@ -753,11 +819,11 @@ test("every reason the model emits has a severity the UI can classify", () => {
   for (const reason of ["changes requested", "CI failing", "conflicts with base"]) {
     assert.ok(ui.includes(`"${reason}"`), `BAD list is missing ${reason}`);
   }
-  // The wait clock is read off any of the three waiting label shapes.
-  assert.ok(ui.includes("/^(awaiting|re-review|changes pushed)/"));
+  // The wait clock is read off both waiting label shapes.
+  assert.ok(ui.includes("/^(awaiting|re-review)/"));
   assert.ok(ui.includes("/· (\\d+)d$/"));
-  // A pull request with nobody assigned is flagged at any age.
-  assert.ok(ui.includes("/^no reviewer requested/"));
+  // Nobody asked, or nobody asked again, is flagged at any age.
+  assert.ok(ui.includes("/^(no reviewer requested|re-request)/"));
   // Follow-ups on an approved PR are worth doing, but they are not blockers.
   assert.ok(ui.includes("/open follow-up/"));
   assert.ok(ui.includes("/open thread/"));
@@ -1018,10 +1084,9 @@ test("held work leaves your move however green it reads", () => {
   const held = items.find((item) => item.key === "PY-1");
   assert.equal(held.section, "held");
   // The signals stay honest — only the routing changes.
-  assert.ok(held.prs[0].reasons.includes("approved · ready to merge"));
+  assert.ok(held.prs[0].reasons.includes("QA passed · ready to merge"));
   assert.equal(isHeld({ summary: "(HOLD) SCIM failing" }), true);
-  assert.equal(isHeld({ summary: "Normal work", labels: ["on-hold"] }), true);
-  assert.equal(isHeld({ summary: "Withholding a value", labels: ["ai"] }), false);
+  assert.equal(isHeld({ summary: "Withholding a value" }), false);
 });
 
 test("only urgent priorities jump the queue, and they jump it whole", () => {
@@ -1098,12 +1163,14 @@ test("each pull request defect routes to the skill that addresses it", () => {
     skill: "resolve-conflicts",
     prompt: "/resolve-conflicts 7486 --repo PerformYard/PerformYard",
   });
-  // A clean, approved pull request has no next action of yours to offer.
-  assert.equal(promptForPr(pr({ reviewDecision: "APPROVED" })), null);
+  // A clean pull request still offers a review of your own, which fixes what it finds.
+  assert.deepEqual(promptForPr(pr({ reviewDecision: "APPROVED" })), {
+    skill: "deep-review",
+    prompt: "/deep-review 7486 --repo PerformYard/PerformYard",
+  });
   assert.equal(promptForPr({ number: null, repo: "x" }), null);
-  // A draft carries its problems as signals and never becomes anyone's move,
-  // so a parked prototype drifting into conflict is not offered as work.
-  assert.equal(promptForPr(pr({ isDraft: true, mergeable: "CONFLICTING", ci: "failure" })), null);
+  // A draft never becomes anyone's move, but its problems are still one click away.
+  assert.equal(promptForPr(pr({ isDraft: true, mergeable: "CONFLICTING", ci: "failure" })).skill, "resolve-conflicts");
   // A review someone asked for is still a review, draft or not.
   assert.equal(promptForReview({ number: 704, repo: "PerformYard/QA", isDraft: true }).skill, "deep-review");
 });
@@ -1114,14 +1181,14 @@ test("feedback already answered by a push is not re-offered as work", () => {
     repo: "PerformYard/PerformYard",
     reviewDecision: "CHANGES_REQUESTED",
     changesRequestedAt: "2026-09-10T00:00:00Z",
-    lastCommitAt: "2026-09-12T00:00:00Z",
+    pushedAt: "2026-09-12T00:00:00Z",
     openThreads: 0,
     botThreads: 0,
     ci: "success",
     mergeable: "MERGEABLE",
   };
   assert.equal(changesAddressed(answered), true);
-  assert.equal(promptForPr(answered), null);
+  assert.equal(promptForPr(answered).skill, "deep-review");
 });
 
 test("a failing or stuck build goes to fix-ci", () => {
@@ -1132,7 +1199,7 @@ test("a failing or stuck build goes to fix-ci", () => {
   });
   // Pending for hours is stuck, not running — the same skill reruns it.
   assert.equal(promptForPr(pr({ ci: "pending", ciStuckHours: 3 })).skill, "fix-ci");
-  assert.equal(promptForPr(pr({ ci: "pending", ciStuckHours: 0 })), null);
+  assert.notEqual(promptForPr(pr({ ci: "pending", ciStuckHours: 0 })).skill, "fix-ci");
 });
 
 test("a stacked pull request's conflicts and CI are fixed across the whole stack", () => {
@@ -1173,15 +1240,18 @@ test("a ticket with no pull request is the one that wants implementing", () => {
     promptForTicket({ key: "PY-1", prs: [], parentPrs: [{ repo: "PerformYard/Logan" }] }).prompt,
     /--repo PerformYard\/Logan$/,
   );
-  // Work already underway, or merged and waiting on a release, is not waiting
-  // to be implemented.
+  // An open pull request carries its own skill on its own line.
   assert.equal(promptForTicket({ key: "PY-1", prs: [{ number: 1 }] }), null);
-  assert.equal(promptForTicket({ key: "PY-1", prs: [], mergedPrs: [{ number: 1 }] }), null);
+  // Merged and still open: what is left is QA's.
+  assert.deepEqual(promptForTicket({ key: "PY-1", prs: [], mergedPrs: [{ number: 1 }] }), {
+    skill: "qa-guide",
+    prompt: "/qa-guide PY-1",
+  });
   // An orphan pull request row has no ticket key to implement.
   assert.equal(promptForTicket({ key: null, prs: [] }), null);
 });
 
-test("held work offers no action, however actionable it looks", () => {
+test("held work keeps the skill its problem calls for", () => {
   const pr = { number: 7209, repo: "PerformYard/PerformYard", headRefName: "nav", baseRefName: "master", baseIsDefault: true, title: "PY-1 nav", openThreads: 2, botThreads: 0, ci: "success", mergeable: "MERGEABLE", isDraft: false, reviewDecision: "APPROVED", pendingReviewers: [], ageDays: 3 };
   const items = buildItems(
     [
@@ -1198,11 +1268,9 @@ test("held work offers no action, however actionable it looks", () => {
     [{ ...pr, ...categorizePr(pr), action: promptForPr(pr) }],
   );
   const held = items.find((item) => item.key === "PY-1");
+  // The hold keeps it out of your move, not out of reach.
   assert.equal(held.section, "held");
-  assert.equal(held.action, null);
-  // The pull request would otherwise route to address-review on its open threads.
-  assert.equal(promptForPr(pr).skill, "address-review");
-  assert.equal(held.prs[0].action, null);
+  assert.equal(held.prs[0].action.skill, "address-review");
 });
 
 test("copying a prompt is the only thing the button does", () => {
@@ -1293,7 +1361,8 @@ test("work I lead but nobody owns is its own lane, never mixed into my queue", (
     skill: "diagnose-bug",
     prompt: "/diagnose-bug PY-1",
   });
-  assert.equal(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: true, issueType: "Story", groomed: true }), null);
+  // Already groomed: grooming again brings the notes up to date.
+  assert.equal(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: true, issueType: "Story", groomed: true }).skill, "jira-ticket-groomer");
   assert.equal(promptForTicket({ key: "PY-1", prs: [], leadUnassigned: false }).skill, "implement-ticket");
 });
 
@@ -1401,3 +1470,192 @@ test("the lead lane carries what its prompt is decided on", () => {
   assert.equal(item.action.skill, "diagnose-bug");
 });
 
+
+test("a reviewer who commented and was never asked again is yours to re-request", () => {
+  const now = Date.parse("2026-10-16T00:00:00Z");
+  const reviews = [
+    { state: "COMMENTED", submittedAt: "2026-10-15T20:59:27Z", author: { login: "aroffe-py", __typename: "User" } },
+    // Your own replies to their threads arrive as comment-only reviews too.
+    { state: "COMMENTED", submittedAt: "2026-10-15T21:05:07Z", author: { login: "greg-py", __typename: "User" } },
+    { state: "APPROVED", submittedAt: "2026-10-14T00:00:00Z", author: { login: "james", __typename: "User" } },
+    { state: "COMMENTED", submittedAt: "2026-10-15T00:00:00Z", author: { login: "cursor", __typename: "Bot" } },
+    { state: "CHANGES_REQUESTED", submittedAt: "2026-10-13T00:00:00Z", author: { login: "paul", __typename: "User" } },
+  ];
+  // Paul has been asked again, so he is pending rather than past.
+  const past = pastReviewers(reviews, ["paul"], "greg-py", now);
+  assert.deepEqual(past.map((reviewer) => [reviewer.login, reviewer.reviewedDays]), [["aroffe-py", 0]]);
+
+  // PY-14600 as it stood: reviewed, answered, pushed, nobody re-requested.
+  const pr = categorizePr({ ...basePr, pendingReviewers: [], pastReviewers: past });
+  assert.ok(pr.reasons.includes("re-request @aroffe-py · 0d"));
+  assert.equal(pr.bucket, "needs_you");
+  assert.equal(pr.defect, false);
+  // Anyone still requested is the one being waited on.
+  assert.ok(categorizePr({ ...basePr, pastReviewers: past }).reasons.includes("awaiting @alice · 1d"));
+  // A draft is still nobody's move.
+  assert.equal(categorizePr({ ...basePr, isDraft: true, pendingReviewers: [], pastReviewers: past }).bucket, "waiting");
+});
+
+test("a stack can start on someone else's open pull request", () => {
+  const outside = { number: 760, url: "https://github.com/org/app/pull/760", author: "JustinCoker991" };
+  const [mine, above] = withStacks([
+    stackPr(775, "release-cli", "release-tools-mcp", { baseOpenPr: outside }),
+    stackPr(776, "release-cli-2", "release-cli"),
+  ]);
+  assert.equal(mine.stack.blockedBy, 760);
+  assert.equal(above.stack.blockedBy, 760);
+  assert.equal(above.stack.depth, 2);
+  const blocked = categorizePr(mine);
+  assert.equal(blocked.reasons[0], "blocked · behind @JustinCoker991 #760");
+  // Approved and green, but it targets someone else's branch.
+  assert.equal(blocked.reasons.some((reason) => reason.includes("ready to merge")), false);
+  assert.equal(blocked.bucket, "waiting");
+  // A change alone on someone else's pull request has no stack of yours to cascade.
+  assert.equal(promptForPr({ ...mine, ci: "failure" }).prompt, "/fix-ci 775 --repo org/app");
+  assert.equal(promptForPr({ ...above, ci: "failure" }).prompt, "/fix-ci 776 --stack --repo org/app");
+  // A non-default base with no open pull request behind it is still unstacked.
+  assert.equal(withStacks([stackPr(2, "b", "gone", { baseOpenPr: null })])[0].stack.blockedBy, null);
+});
+
+test("a stacked change that landed under its own number is judged by that number", () => {
+  const merged = (number, head, base) => ({
+    number, title: `PY-${number} x`, url: `u${number}`, repo: "o/app",
+    mergedAt: "2026-10-15T16:26:00Z", headRefName: head, baseRefName: base, baseIsDefault: base === "master",
+  });
+  const release = (numbers) => new Map([["o/app", { tag: "v1", ahead: 1, truncated: false, numbers: new Set(numbers) }]]);
+  // Merged bottom-up: the parent went out in the last release, the child landed
+  // on master afterwards as its own squash commit.
+  const stack = [merged(7574, "phase-1", "master"), merged(7575, "phase-2", "phase-1")];
+  assert.deepEqual(buildShipping(stack, release([7575])).items.map((item) => item.number), [7575]);
+  // With its parent outside the lookback window, its own number still settles it.
+  assert.equal(buildShipping([merged(7575, "phase-2", "phase-1")], release([7575])).items.length, 1);
+});
+
+test("a repo that deploys every merge has nothing waiting on a release", () => {
+  const logan = { number: 758, title: "PY-14306 x", url: "u", repo: "PerformYard/Logan", mergedAt: "2026-10-12T00:00:00Z", headRefName: "a", baseIsDefault: true };
+  assert.ok(CONFIG.deployOnMergeRepos.includes("PerformYard/Logan"));
+  const shipping = buildShipping([logan], new Map([["PerformYard/Logan", { none: true }]]));
+  assert.deepEqual(shipping.items, []);
+  assert.equal(shipping.note, null, "deploy-on-merge is not a repo the board cannot see");
+  // The caveat reaches the reader even when there are no rows to hang it under.
+  const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.ok(ui.includes("if (shippingNote && (visibleShipping.length > 0 || !data.shipping?.error))"));
+});
+
+test("stuck CI is timed from the pending check, not from when the commit was written", () => {
+  const now = Date.parse("2026-10-16T12:00:00Z");
+  const checks = [
+    { name: "Unit Tests", status: "IN_PROGRESS", startedAt: "2026-10-16T11:30:00Z", checkSuite: { createdAt: "2026-10-16T11:29:00Z" } },
+    { name: "Lint", conclusion: "SUCCESS", startedAt: "2026-10-16T11:29:30Z" },
+    // Re-run on a review: the newest run is what counts, and the gate is noise.
+    { name: "QA Code Review", status: "QUEUED", checkSuite: { createdAt: "2026-10-10T00:00:00Z" } },
+  ];
+  assert.equal(ciPendingSince(checks), "2026-10-16T11:30:00Z");
+  // Written days ago, pushed half an hour ago: running, not stuck.
+  const pr = { ci: "pending", ciPendingSince: ciPendingSince(checks), pushedAt: "2026-10-16T11:29:00Z" };
+  assert.equal(ciStuckHours(pr, now), 0);
+  assert.equal(ciStuckHours({ ...pr, ciPendingSince: "2026-10-16T08:00:00Z" }, now), 4);
+  // A queued check with no start falls back to when its suite was created.
+  assert.equal(ciPendingSince([{ name: "Build", status: "QUEUED", checkSuite: { createdAt: "2026-10-16T07:00:00Z" } }]), "2026-10-16T07:00:00Z");
+  // With no check saying, the push is the clock.
+  assert.equal(ciStuckHours({ ci: "pending", ciPendingSince: null, pushedAt: "2026-10-16T09:00:00Z" }, now), 3);
+});
+
+test("a bot finding on code that has since changed goes stale like anyone's", () => {
+  const bot = { login: "cursor", isBot: true, body: "Possible null deref", createdAt: "2026-10-01T00:00:00Z" };
+  assert.equal(threadState({ isResolved: false, isOutdated: true, firstComment: bot, lastComment: bot }, "greg-py"), "stale");
+  assert.equal(threadState({ isResolved: false, isOutdated: false, firstComment: bot, lastComment: bot }, "greg-py"), "bot");
+});
+
+test("a review request is timed from when you were asked", () => {
+  const events = [
+    { createdAt: "2026-10-01T00:00:00Z", requestedReviewer: { __typename: "User", login: "greg-py" } },
+    { createdAt: "2026-10-14T00:00:00Z", requestedReviewer: { __typename: "User", login: "greg-py" } },
+    { createdAt: "2026-10-15T00:00:00Z", requestedReviewer: { __typename: "User", login: "someone" } },
+  ];
+  assert.equal(requestedOfViewerAt(events, "greg-py"), "2026-10-14T00:00:00Z");
+  // Asked through a team: the team's request is the clock.
+  const team = [{ createdAt: "2026-10-12T00:00:00Z", requestedReviewer: { __typename: "Team", name: "frontend" } }];
+  assert.equal(requestedOfViewerAt(team, "greg-py"), "2026-10-12T00:00:00Z");
+  assert.equal(requestedOfViewerAt([], "greg-py"), null);
+  const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  assert.ok(ui.includes("const waited = pr.askedDays ?? pr.ageDays;"));
+});
+
+test("the fetched pull request carries push time, readiness, past reviewers and an honest gate", () => {
+  const now = Date.parse("2026-10-16T00:00:00Z");
+  const node = (extra = {}) => ({
+    number: 7785,
+    title: "PY-14600 Meetings Responsiveness",
+    url: "u",
+    isDraft: false,
+    author: { login: "greg-py" },
+    baseRefName: "release-tools-mcp",
+    repository: { nameWithOwner: "PerformYard/PerformYard", defaultBranchRef: { name: "master" } },
+    createdAt: "2026-10-01T00:00:00Z",
+    updatedAt: "2026-10-15T00:00:00Z",
+    latestReviews: { nodes: [{ state: "COMMENTED", submittedAt: "2026-10-15T20:59:27Z", author: { login: "aroffe-py", __typename: "User" } }] },
+    reviewRequests: { nodes: [] },
+    timelineItems: { nodes: [{ __typename: "ReadyForReviewEvent", createdAt: "2026-10-15T18:24:14Z" }] },
+    baseRef: { associatedPullRequests: { nodes: [{ number: 760, url: "u760", author: { login: "JustinCoker991" } }] } },
+    commits: { nodes: [{ commit: {
+      // Written two weeks before it was pushed.
+      committedDate: "2026-10-01T00:00:00Z",
+      checkSuites: { nodes: [{ createdAt: "2026-10-15T21:05:30Z" }, { createdAt: "2026-10-15T21:05:20Z" }] },
+      statusCheckRollup: { contexts: { nodes: [{ name: "QA Code Review", conclusion: "SUCCESS" }] } },
+    } }] },
+    ...extra,
+  });
+  const pr = mapReviewPr(node(), now, "greg-py");
+  assert.equal(pr.pushedAt, "2026-10-15T21:05:20Z");
+  assert.equal(pr.pushedDaysAgo, 0);
+  assert.equal(pr.readyDays, 0);
+  assert.equal(pr.ageDays, 15);
+  assert.deepEqual(pr.pastReviewers.map((reviewer) => reviewer.login), ["aroffe-py"]);
+  assert.deepEqual(pr.baseOpenPr, { number: 760, url: "u760", author: "JustinCoker991" });
+  assert.equal(pr.qaGate, "passed");
+  // The enforcer passes every draft unread, so a draft has no gate verdict.
+  assert.equal(mapReviewPr(node({ isDraft: true }), now).qaGate, null);
+});
+
+test("the config names only statuses and markers this workflow actually uses", () => {
+  for (const status of [...CONFIG.waitingStatuses, ...CONFIG.statusOrder]) {
+    assert.notEqual(status, "blocked", "PY has no Blocked status");
+  }
+  assert.equal("holdLabels" in CONFIG, false);
+  assert.ok(CONFIG.waitingStatuses.includes("in design review"));
+});
+
+test("a hidden row comes back when its state changes", () => {
+  const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  // Hidden rows remember the state they were hidden in, and a bare list stored
+  // before that adopts whatever state it is next seen in.
+  assert.ok(ui.includes("const hidden = new Map();"));
+  assert.ok(ui.includes("if (was === state) return true;"));
+  assert.ok(ui.includes("hidden.delete(id);"));
+  assert.ok(ui.includes('data-state="${esc(itemState(item))}"'));
+  assert.ok(ui.includes("Array.isArray(stored) ? stored.map((id) => [id, null])"));
+});
+
+test("a clean pull request's skill follows where its ticket stands", () => {
+  const approved = { ...basePr, reviewDecision: "APPROVED" };
+  const actionAt = (status, pr = approved) => {
+    const [item] = buildItems(
+      [jiraIssue("PY-13548", { status: { name: status, statusCategory: { key: "indeterminate" } } })],
+      [prFixture(pr)],
+    );
+    return item.prs[0].action;
+  };
+  // Queued for QA, being tested, or approved and ready to send: the test guide.
+  for (const status of ["Ready To Test", "In Testing", "In Code Review"]) {
+    assert.deepEqual(actionAt(status), { skill: "qa-guide", prompt: "/qa-guide PY-13548" }, status);
+  }
+  // Still waiting on its first review: a review of your own.
+  assert.equal(actionAt("In Code Review", basePr).skill, "deep-review");
+  assert.equal(actionAt("READY TO MERGE").skill, "deep-review");
+  // A problem outranks the ticket's stage.
+  assert.equal(actionAt("In Testing", { ...approved, ci: "failure" }).skill, "fix-ci");
+  // An orphan pull request has no ticket to write a guide for.
+  const [orphan] = buildItems([], [prFixture({ title: "No ticket", headRefName: "x", isDraft: true })]);
+  assert.equal(orphan.prs[0].action.skill, "deep-review");
+});

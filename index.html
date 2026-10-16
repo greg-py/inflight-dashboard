@@ -84,9 +84,9 @@
   #card-to_do { --lane: var(--ink-2); }
   #card-lead { --lane: var(--waiting); }
   #card-shipping { --lane: var(--good); }
-  #card-held { --lane: var(--ink-3); }
-  #card-held .row { opacity: .62; }
-  #card-held .row:hover { opacity: 1; }
+  #card-held, #card-parked { --lane: var(--ink-3); }
+  #card-held .row, #card-parked .row { opacity: .62; }
+  #card-held .row:hover, #card-parked .row:hover { opacity: 1; }
 
   .section-head {
     display: grid;
@@ -164,8 +164,8 @@
      always live, like the theme toggle. */
   .section-head .act.copy, .routines .act.copy { opacity: 1; pointer-events: auto; }
   .routines { display: inline-flex; gap: 8px; margin-right: 12px; }
-  /* Sits inline on the row it belongs to rather than in the action column, so
-     a row with no honest next action loses nothing but the button. */
+  /* Sits inline on the line it belongs to rather than in the action column, so
+     a ticket and each of its pull requests can carry their own. */
   .act.copy { margin-left: 3px; color: var(--development); }
   .act.copy::before { content: "⌘ "; }
   .act.copy::after { content: ""; }
@@ -226,6 +226,7 @@
       <section class="work-section" id="card-lead"></section>
       <section class="work-section" id="card-shipping"></section>
       <section class="work-section" id="card-held"></section>
+      <section class="work-section" id="card-parked"></section>
       <section class="work-section" hidden id="card-hidden">
         <details class="folded" id="hidden-details"><summary id="hidden-summary">Hidden</summary><div id="hidden-list"></div></details>
       </section>
@@ -241,6 +242,7 @@
     { id: "to_do", label: "To do", code: "05 / queued" },
     { id: "lead", label: "Needs an owner", code: "06 / unowned" },
     { id: "held", label: "Held", code: "08 / held" },
+    { id: "parked", label: "Parked", code: "09 / parked" },
   ];
   const BAD = ["changes requested", "CI failing", "conflicts with base"];
   const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · in QA", "approved · move to QA", "approved"];
@@ -252,12 +254,38 @@
 
   let lastData = null;
   let lastFetched = null;
-  const hidden = new Set();
+  // Each hidden row remembers the state it was hidden in. Hiding is a judgement
+  // about that state — a row hidden while waiting on a reviewer has to come
+  // back when the reviewer asks for changes, or it is hidden for good at the
+  // moment it matters. Ids stored before this (a bare list) adopt whatever state
+  // they are next seen in.
+  const hidden = new Map();
   try {
-    for (const id of JSON.parse(localStorage.getItem("inflight-hidden") ?? "[]")) {
-      if (typeof id === "string") hidden.add(id);
+    const stored = JSON.parse(localStorage.getItem("inflight-hidden") ?? "[]");
+    const entries = Array.isArray(stored) ? stored.map((id) => [id, null]) : Object.entries(stored);
+    for (const [id, state] of entries) {
+      if (typeof id === "string") hidden.set(id, typeof state === "string" ? state : null);
     }
   } catch {}
+  const saveHidden = () => {
+    try { localStorage.setItem("inflight-hidden", JSON.stringify(Object.fromEntries(hidden))); } catch {}
+  };
+  const itemState = (item) => item.section;
+  const reviewState = (pr) => (pr.viewerReviewState ? "re-review" : "review");
+  const shippingState = () => "shipping";
+  const isHidden = (id, state) => {
+    if (!hidden.has(id)) return false;
+    const was = hidden.get(id);
+    if (was === null) {
+      hidden.set(id, state);
+      saveHidden();
+      return true;
+    }
+    if (was === state) return true;
+    hidden.delete(id);
+    saveHidden();
+    return false;
+  };
 
   const THEMES = ["system", "light", "dark"];
   let theme = "system";
@@ -296,7 +324,7 @@
   const reasonSpan = (reason) => {
     // "awaiting @alice +1 · 4d" and "re-review @bob · 4d" both carry a wait; a
     // pull request with nobody assigned is stalled at any age.
-    const waiting = /^(awaiting|re-review|changes pushed)/.test(reason);
+    const waiting = /^(awaiting|re-review)/.test(reason);
     const age = reason.match(/· (\d+)d$/);
     // A QA label carries its own clock now, so the settled-state lookup reads
     // the label without it — otherwise "approved · in QA · 4d" matches nothing
@@ -304,7 +332,7 @@
     const base = age ? reason.slice(0, age.index).trim() : reason;
     const stale = age && Number(age[1]) >= (QA_WAITS.includes(base) ? QA_AGE_WARN_DAYS : STALE_REVIEW_DAYS);
     const cls = BAD.includes(base) || /open thread/.test(reason) || /^CI stuck/.test(reason) ? "r-bad"
-      : /^no reviewer requested/.test(reason) || /bot thread/.test(reason) || /open follow-up/.test(reason)
+      : /^(no reviewer requested|re-request)/.test(reason) || /bot thread/.test(reason) || /open follow-up/.test(reason)
         || /^blocked · behind/.test(reason) || /^stack root/.test(reason)
         || ((waiting || QA_WAITS.includes(base)) && stale) ? "r-warn"
       : GOOD.includes(base) ? "r-good" : "";
@@ -330,7 +358,10 @@
   const prRefs = (prs) => (prs ?? []).map((pr) => `<a href="${esc(pr.url)}" target="_blank" rel="noopener">#${pr.number}</a>`).join(", ");
 
   const workRow = (item, action) => {
-    const key = item.key ? `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(item.key)}</a>` : "—";
+    // A pull request carrying someone else's ticket, or a finished one, still
+    // links it; only the row's own ticket is ever acted on.
+    const label = item.key ?? item.ticketKey;
+    const key = label ? `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : "—";
     const prio = item.urgent ? `<span class="prio">${esc(String(item.priority).split("-")[0])}</span>` : "";
     // A subtask rides its parent's branch; a story names the epic it belongs
     // to. Both were already fetched, and only the first was ever shown — which
@@ -349,16 +380,18 @@
       <div class="body"><div class="summary" title="${esc(item.summary)}">${esc(item.summary)}${subtask}</div>
       ${item.prs.map(prLine).join("")}${noPr}</div>
       <span class="chip ${statusClass(item.status)}">${esc(item.status)}</span>
-      <button type="button" class="act" data-action="${action}" data-id="${esc(item.id)}" aria-label="${action} ${esc(item.key ?? item.summary)}">${action}</button></div>`;
+      <button type="button" class="act" data-action="${action}" data-id="${esc(item.id)}" data-state="${esc(itemState(item))}" aria-label="${action} ${esc(item.key ?? item.summary)}">${action}</button></div>`;
   };
 
   const reviewRow = (pr, action) => {
     const ciSpan = pr.ci === "failure" ? `<span class="meta-item">${reasonSpan("CI failing")}</span>` : pr.ci === "success" ? `<span class="meta-item">${reasonSpan("CI green")}</span>` : "";
+    // How long it has waited on you, which is not how long it has been open.
+    const waited = pr.askedDays ?? pr.ageDays;
     const details = [
       pr.ticketKey ? `<span class="meta-item"><a href="${esc(pr.ticketUrl)}" target="_blank" rel="noopener">${esc(pr.ticketKey)}</a></span>` : "",
       `<span class="meta-item"><a href="${esc(pr.url)}" target="_blank" rel="noopener">PR #${pr.number}</a></span>`,
       `<span class="meta-item">+${pr.additions}/−${pr.deletions}</span>`,
-      `<span class="meta-item ${pr.ageDays >= STALE_REVIEW_DAYS ? "age-warn" : ""}">open ${pr.ageDays}d</span>`,
+      `<span class="meta-item ${waited >= STALE_REVIEW_DAYS ? "age-warn" : ""}">${pr.askedDays === null || pr.askedDays === undefined ? "open" : "asked"} ${waited}d</span>`,
       pr.viewerReviewState ? `<span class="meta-item">re-requested</span>` : "",
       pr.isDraft ? `<span class="meta-item">draft</span>` : "",
       ciSpan,
@@ -367,7 +400,7 @@
       <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
       <div class="line review-meta">${details.join("")}${actionButton(pr.action)}</div></div>
       <span class="chip">${esc(repoName(pr.repo))}</span>
-      <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" aria-label="${action} review ${esc(pr.title)}">${action}</button></div>`;
+      <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" data-state="${esc(reviewState(pr))}" aria-label="${action} review ${esc(pr.title)}">${action}</button></div>`;
   };
 
   const shippingRow = (pr, action) =>
@@ -375,7 +408,7 @@
       <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
       <div class="line review-meta"><span class="meta-item"><a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(repoName(pr.repo))} #${pr.number}</a></span><span class="meta-item">merged ${esc(ago(Date.parse(pr.mergedAt)))} ago</span><span class="meta-item">after ${esc(pr.tag)}</span></div></div>
       <span class="chip status-ready-to-merge">unreleased</span>
-      <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" aria-label="${action} ${esc(pr.title)}">${action}</button></div>`;
+      <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" data-state="${esc(shippingState())}" aria-label="${action} ${esc(pr.title)}">${action}</button></div>`;
 
   // A stack is one piece of news, not eleven. Everything queued behind the same
   // unmerged change folds into a single line that names the change to fix; the
@@ -426,9 +459,9 @@
     document.getElementById("sync-dot").classList.toggle("warn", banners.length > 0);
 
     const shippingItems = data.shipping?.items ?? [];
-    const visible = data.items.filter((item) => !hidden.has(item.id));
-    const visibleReviews = data.reviewRequests.filter((pr) => !hidden.has(pr.id));
-    const visibleShipping = shippingItems.filter((pr) => !hidden.has(pr.id));
+    const visible = data.items.filter((item) => !isHidden(item.id, itemState(item)));
+    const visibleReviews = data.reviewRequests.filter((pr) => !isHidden(pr.id, reviewState(pr)));
+    const visibleShipping = shippingItems.filter((pr) => !isHidden(pr.id, shippingState()));
     const counts = Object.fromEntries(SECTIONS.map((section) => [section.id, visible.filter((item) => item.section === section.id).length]));
     for (const section of SECTIONS) {
       const items = visible.filter((i) => i.section === section.id);
@@ -441,7 +474,10 @@
       visibleShipping.map((pr) => shippingRow(pr, "hide")),
       data.shipping?.error ? esc(data.shipping.error) : "everything merged is released",
       visibleShipping.length, visibleShipping.length > 0 ? data.shipping?.action : null);
-    if (shippingNote && visibleShipping.length > 0) {
+    // Stated whether or not there are rows: "everything merged is released" over
+    // a repo the board could not check is the one claim it must not make.
+    // An error with no rows is already the empty text.
+    if (shippingNote && (visibleShipping.length > 0 || !data.shipping?.error)) {
       document.getElementById("card-shipping").insertAdjacentHTML(
         "beforeend", `<div class="section-note">${esc(shippingNote)}</div>`);
     }
@@ -452,10 +488,11 @@
     card(document.getElementById("card-reviews"), "03 / reviews", "Reviews requested of you",
       visibleReviews.map((pr) => reviewRow(pr, "hide")), "nothing waiting on your review");
 
+    const visibleIds = new Set([...visible, ...visibleReviews, ...visibleShipping].map((row) => row.id));
     const hiddenRows = [
-      ...data.items.filter((item) => hidden.has(item.id)).map((item) => workRow(item, "restore")),
-      ...data.reviewRequests.filter((pr) => hidden.has(pr.id)).map((pr) => reviewRow(pr, "restore")),
-      ...shippingItems.filter((pr) => hidden.has(pr.id)).map((pr) => shippingRow(pr, "restore")),
+      ...data.items.filter((item) => !visibleIds.has(item.id)).map((item) => workRow(item, "restore")),
+      ...data.reviewRequests.filter((pr) => !visibleIds.has(pr.id)).map((pr) => reviewRow(pr, "restore")),
+      ...shippingItems.filter((pr) => !visibleIds.has(pr.id)).map((pr) => shippingRow(pr, "restore")),
     ];
     document.getElementById("card-hidden").hidden = hiddenRows.length === 0;
     document.getElementById("hidden-summary").textContent = `Hidden · ${hiddenRows.length}`;
@@ -511,10 +548,10 @@
       return;
     }
     if (!target.classList.contains("act")) return;
-    const { action, id } = target.dataset;
-    if (action === "hide") hidden.add(id);
+    const { action, id, state } = target.dataset;
+    if (action === "hide") hidden.set(id, state ?? null);
     else hidden.delete(id);
-    try { localStorage.setItem("inflight-hidden", JSON.stringify([...hidden])); } catch {}
+    saveHidden();
     render(lastData);
   });
 
