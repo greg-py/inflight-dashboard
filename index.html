@@ -4,246 +4,266 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>In-flight</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 fill=%22%231b1b18%22/><path d=%22M15 46 46 15M26 15h20v20%22 fill=%22none%22 stroke=%22%23f3f0e7%22 stroke-width=%225%22/></svg>" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2218%22 fill=%22%2315181a%22/><path d=%22M22 42 42 22M28 22h14v14%22 fill=%22none%22 stroke=%22%23f1f2ef%22 stroke-width=%225%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/></svg>" />
 <script>
   try {
     const stored = localStorage.getItem("inflight-theme");
     if (stored === "light" || stored === "dark") document.documentElement.dataset.theme = stored;
   } catch {}
 </script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" />
 <style>
+  /* ── Tokens ──────────────────────────────────────────────────────────────
+     One palette, resolved by color-scheme: the toggle only sets that property,
+     so light and dark cannot drift apart. Colour is reserved for signal — red
+     for a defect, amber for a wait worth chasing, green for settled — plus one
+     accent for your move and violet for reviews asked of you. */
   :root {
-    /* Follows the system unless the reader picks a side; every token below
-       resolves against whatever color-scheme ends up in force, so the toggle
-       only has to set that one property. */
     color-scheme: light dark;
-    --paper: light-dark(#f1eee5, #181815);
-    --ink: light-dark(#1c1c19, #efecdf);
-    --ink-2: light-dark(#6d695f, #aaa69a);
-    --ink-3: light-dark(#989286, #77746b);
-    --rule: light-dark(#d0c9ba, #3c3a34);
-    --rule-strong: light-dark(#8d887d, #77736a);
-    --wash: light-dark(#e9e5da, #23231f);
-    --hover: light-dark(#e7e2d5, #292823);
-    --action: light-dark(#b94332, #ef7865);
-    --waiting: light-dark(#9a681e, #d8a34d);
-    --development: light-dark(#356879, #6eafbf);
-    --review: light-dark(#76516a, #bc8eaa);
-    --good: light-dark(#357254, #79b891);
+    --paper: light-dark(#f1f2ef, #111312);
+    --lane: light-dark(#e7e8e4, #181b1a);
+    --card: light-dark(#ffffff, #1f2321);
+    --sunk: light-dark(#f4f5f2, #262a28);
+    --line: light-dark(rgb(20 24 20 / .08), rgb(255 255 255 / .07));
+    --line-2: light-dark(rgb(20 24 20 / .15), rgb(255 255 255 / .13));
+    --ink: light-dark(#15181a, #eef0ec);
+    --ink-2: light-dark(#4f555b, #aab0ab);
+    --ink-3: light-dark(#7a8087, #7b827d);
+    --on-ink: light-dark(#ffffff, #111312);
+    --accent: light-dark(#d94a2b, #ff7a5c);
+    --red: light-dark(#cf3a31, #ff776d);
+    --amber: light-dark(#a86400, #f0b350);
+    --green: light-dark(#17824f, #5fd193);
+    --violet: light-dark(#6f4ad1, #b59bff);
+    --red-soft: light-dark(#fcebea, rgb(255 119 109 / .13));
+    --amber-soft: light-dark(#fbefd9, rgb(240 179 80 / .13));
+    --green-soft: light-dark(#e2f3e9, rgb(95 209 147 / .12));
+    --violet-soft: light-dark(#efe9fc, rgb(181 155 255 / .13));
+    --neutral-soft: light-dark(#eeefec, rgb(255 255 255 / .06));
+    --shade: light-dark(rgb(20 24 20 / .05), rgb(0 0 0 / .35));
+    --ring: light-dark(transparent, rgb(255 255 255 / .06));
+    --shadow-1: 0 0 0 1px var(--ring), 0 1px 1px var(--shade), 0 2px 6px var(--shade);
+    --shadow-2: 0 0 0 1px var(--ring), 0 1px 2px var(--shade), 0 12px 28px -10px light-dark(rgb(20 24 20 / .16), rgb(0 0 0 / .55));
+
+    --sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --r-tag: 6px;
+    --r-control: 8px;
+    --r-card: 10px;
+    --r-lane: 14px;
+    --r-move: 16px;
   }
   :root[data-theme="light"] { color-scheme: light; }
   :root[data-theme="dark"] { color-scheme: dark; }
+
+  /* ── Base ─────────────────────────────────────────────────────────────── */
   * { box-sizing: border-box; }
-  body {
-    min-height: 100vh;
-    margin: 0;
-    color: var(--ink);
-    background: var(--paper);
-    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
+  body { min-height: 100vh; margin: 0; background: var(--paper); color: var(--ink); font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
+  main { max-width: 1600px; margin: 0 auto; padding: 28px 32px 72px; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+  button { font: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  svg { flex: none; }
+
+  /* ── Masthead ─────────────────────────────────────────────────────────── */
+  .masthead { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+  .logo { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: var(--ink); color: var(--paper); }
+  .masthead h1 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.025em; }
+  .today { color: var(--ink-3); font-weight: 500; }
+  .masthead .spacer { flex: 1; }
+  .routines { display: flex; gap: 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 99px; background: var(--card); box-shadow: var(--shadow-1); color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .pill:hover { color: var(--ink); box-shadow: var(--shadow-2); }
+  .pill svg { opacity: .55; }
+  .theme-toggle { display: grid; place-items: center; width: 30px; padding: 0; color: var(--ink-3); }
+  .sync { display: inline-flex; align-items: center; gap: 7px; margin-left: 4px; color: var(--ink-3); font: 500 12px var(--mono); white-space: nowrap; }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .sync-dot.warn { background: var(--amber); }
+
+  #banners:empty, #error[hidden] { display: none; }
+  #banners { display: grid; gap: 8px; margin: -12px 0 24px; }
+  .banner, #error { padding: 10px 14px; border-radius: var(--r-card); background: var(--amber-soft); color: var(--amber); font: 500 12px/1.45 var(--mono); }
+  #error { margin: -12px 0 24px; background: var(--red-soft); color: var(--red); }
+
+  /* ── Section heads ────────────────────────────────────────────────────── */
+  .head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 14px; }
+  .head h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.03em; }
+  .head .n { color: var(--accent); font: 500 22px var(--mono); letter-spacing: -.04em; }
+  .head.quiet h2 { color: var(--ink-2); font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+
+  /* ── Signals ──────────────────────────────────────────────────────────── */
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  .tag { display: inline-flex; align-items: center; max-width: 100%; height: 22px; padding: 0 8px; overflow: hidden; border-radius: var(--r-tag); background: var(--neutral-soft); color: var(--ink-2); font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+  .tag .age { margin-left: 5px; font: 500 11px var(--mono); opacity: .75; }
+  .tag.r-bad { background: var(--red-soft); color: var(--red); }
+  .tag.r-warn { background: var(--amber-soft); color: var(--amber); }
+  .tag.r-good { background: var(--green-soft); color: var(--green); }
+  .num { color: var(--ink-3); font: 500 11.5px var(--mono); white-space: nowrap; }
+  .num:hover { color: var(--ink); }
+  .badge { padding: 1px 6px; border-radius: 5px; font: 600 10.5px/1.5 var(--mono); white-space: nowrap; }
+  .badge.prio { background: var(--red-soft); color: var(--red); }
+  .badge.owner { background: var(--amber-soft); color: var(--amber); font-family: var(--sans); }
+
+  /* ── Controls ─────────────────────────────────────────────────────────── */
+  /* A skill button copies its prompt; that is all it does. */
+  .skill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: 1px solid var(--line-2); border-radius: var(--r-control); background: transparent; color: var(--ink); font: 500 12px/1 var(--mono); cursor: pointer; white-space: nowrap; }
+  .skill:hover { border-color: var(--ink-3); background: var(--sunk); }
+  .skill.primary { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
+  .skill.primary:hover { border-color: var(--accent); background: var(--accent); color: #fff; }
+  .skill.small { height: 24px; padding: 0 8px; border-radius: 7px; font-size: 11.5px; }
+  .act { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--ink-3); cursor: pointer; }
+  .act:hover { background: var(--sunk); color: var(--ink); }
+
+  /* Card tools surface on hover or focus, and stay put where there is no hover. */
+  .tools { display: flex; align-items: center; gap: 4px; opacity: 0; transition: opacity .12s; }
+  .move:hover .tools, .move:focus-within .tools, .card:hover .tools, .card:focus-within .tools { opacity: 1; }
+  @media (hover: none) { .tools { opacity: 1; } }
+
+  .kicker { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink-3); font: 500 11.5px var(--mono); }
+  .kicker .key { color: var(--ink-3); white-space: nowrap; }
+  .kicker .key:hover { color: var(--ink); }
+  .kicker .spacer { flex: 1; }
+
+  /* ── Your move ────────────────────────────────────────────────────────── */
+  .tray { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin-bottom: 44px; }
+  .move { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 16px 18px 14px; border-radius: var(--r-move); background: var(--card); box-shadow: var(--shadow-2); }
+  .move::before { content: ""; position: absolute; top: 0; left: 18px; width: 28px; height: 3px; border-radius: 0 0 3px 3px; background: var(--k, var(--accent)); }
+  .move.review { --k: var(--violet); }
+  .move .kind { color: var(--k, var(--accent)); font-family: var(--sans); font-weight: 700; white-space: nowrap; }
+  .move h3 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.35; letter-spacing: -.015em; }
+  .move .sub { margin-top: -6px; color: var(--ink-3); font-size: 12px; font-weight: 500; }
+  .move .pr-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .move footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); }
+  .move footer .diff { margin-left: auto; color: var(--ink-3); font: 500 11.5px var(--mono); white-space: nowrap; }
+  .tray-clear { display: grid; place-items: center; min-height: 92px; border: 1.5px dashed var(--line-2); border-radius: var(--r-move); color: var(--ink-3); font-weight: 600; }
+
+  /* ── Pipeline ─────────────────────────────────────────────────────────── */
+  .pipeline { display: grid; grid-template-columns: repeat(6, minmax(196px, 1fr)); gap: 10px; align-items: start; margin: 0 -4px; padding: 0 4px 8px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+  .stage { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 120px; padding: 10px; border-radius: var(--r-lane); background: var(--lane); }
+  .stage-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 2px 4px 4px; }
+  .stage-head .step { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--card); box-shadow: var(--shadow-1); color: var(--ink-3); font: 500 11px var(--mono); }
+  .stage-head b { font-size: 13px; font-weight: 700; }
+  .stage-head .n { color: var(--ink-3); font: 500 12px var(--mono); }
+  .stage-head .spacer { flex: 1; }
+  .stage-note { padding: 2px 4px; color: var(--ink-3); font: 11px/1.5 var(--mono); }
+  .stage-empty { padding: 10px 4px; color: var(--ink-3); font: 11.5px/1.5 var(--mono); }
+
+  .card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 11px 12px 12px; border-radius: var(--r-card); background: var(--card); box-shadow: var(--shadow-1); }
+  .card:hover { box-shadow: var(--shadow-2); }
+  /* Cards are too narrow to give the tools a column, so they float over the
+     end of the kicker while the card is in hand. */
+  .card { position: relative; }
+  .card .tools { position: absolute; top: 7px; right: 8px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--card) 14px); }
+  .card .kicker { min-height: 24px; margin: -3px -4px -3px 0; font-size: 11px; }
+  .card h4 { display: -webkit-box; margin: 0; overflow: hidden; font-size: 12.5px; font-weight: 650; line-height: 1.38; letter-spacing: -.005em; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .card .sub { margin-top: -4px; overflow: hidden; color: var(--ink-3); font-size: 11.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+  .card h3 { margin: 0; font-size: 12.5px; font-weight: 650; line-height: 1.38; }
+  .card .kind { color: var(--violet); font-family: var(--sans); font-weight: 700; }
+  .card footer { display: flex; align-items: center; gap: 8px; }
+  .card footer .diff { margin-left: auto; color: var(--ink-3); font: 500 11px var(--mono); }
+  .card .tags { gap: 4px; }
+  /* Cards are narrow, so a long signal wraps rather than losing its tail. */
+  .card .tag { height: auto; min-height: 20px; padding: 2px 6px; font-size: 11px; line-height: 1.4; white-space: normal; }
+  .card .pr-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  /* Who owes the next move, and for how long — kept apart from what is wrong. */
+  .wait { display: flex; align-items: center; gap: 7px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 11.5px; font-weight: 600; }
+  .wait::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); }
+  .wait .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wait .age { margin-left: auto; color: var(--ink-3); font: 500 11px var(--mono); }
+  .wait.r-warn { color: var(--amber); } .wait.r-warn::before { background: var(--amber); }
+  .wait.r-good::before { background: var(--green); }
+  .wait + .wait { padding-top: 0; border-top: 0; }
+
+  /* A stack is one piece of news, not eleven. */
+  .stack { border-radius: var(--r-card); background: var(--amber-soft); }
+  .stack > summary { display: flex; align-items: center; gap: 8px; padding: 9px 12px; color: var(--amber); cursor: pointer; font-size: 12px; font-weight: 700; list-style: none; }
+  .stack > summary::-webkit-details-marker { display: none; }
+  .stack > summary .n { margin-left: auto; font: 500 11.5px var(--mono); }
+  .stack > summary::after { content: "+"; font: 500 14px var(--mono); }
+  .stack[open] > summary::after { content: "−"; }
+  .stack .cards { display: grid; gap: 8px; padding: 0 6px 6px; }
+
+  /* ── Shelf: held, parked, hidden ──────────────────────────────────────── */
+  .shelf { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .drawer { flex: 1 1 360px; min-width: 0; border-radius: var(--r-lane); background: var(--lane); }
+  .drawer > summary { display: flex; align-items: center; gap: 10px; padding: 12px 14px; color: var(--ink-2); cursor: pointer; font-weight: 700; list-style: none; }
+  .drawer > summary::-webkit-details-marker { display: none; }
+  .drawer > summary .n { color: var(--ink-3); font: 500 12px var(--mono); }
+  .drawer > summary::after { content: "+"; margin-left: auto; color: var(--ink-3); font: 500 15px var(--mono); }
+  .drawer[open] > summary::after { content: "−"; }
+  .drawer .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; max-height: 520px; padding: 0 10px 10px; overflow-y: auto; }
+  .drawer .card { opacity: .72; }
+  .drawer .card:hover, .drawer .card:focus-within { opacity: 1; }
+
+  @media (max-width: 760px) {
+    main { padding: 18px 16px 48px; }
+    .masthead { flex-wrap: wrap; margin-bottom: 22px; }
+    .masthead .spacer { display: none; }
+    .routines { order: 5; width: 100%; overflow-x: auto; scrollbar-width: none; }
+    .today { margin-right: auto; }
+    .tray { grid-template-columns: minmax(0, 1fr); }
+    .pipeline { grid-template-columns: repeat(6, 82vw); scroll-snap-type: x mandatory; }
+    .stage { scroll-snap-align: start; }
+    .move .tools { opacity: 1; }
   }
-  main { max-width: 1540px; margin: 0 auto; padding: 26px 30px 64px; }
-  a { color: inherit; text-decoration-color: var(--rule-strong); text-underline-offset: 3px; }
-  a:hover { color: var(--action); text-decoration-color: currentColor; }
-  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
-
-  .masthead {
-    display: flex;
-    gap: 28px;
-    align-items: flex-end;
-    justify-content: space-between;
-    padding: 13px 0 18px;
-    border-top: 5px solid var(--ink);
-    border-bottom: 1px solid var(--ink);
-  }
-  .section-code, .count, .key, .chip, .reviewer, .sync-status {
-    font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  }
-  .masthead h1 { margin: 0; font-size: clamp(36px, 4.8vw, 64px); line-height: .8; letter-spacing: -.055em; }
-  .masthead h1 > span:not(.joiner) { font-weight: 850; }
-  .masthead h1 .joiner { display: inline-block; margin: 0 .06em; font-size: .55em; font-weight: 500; letter-spacing: 0; vertical-align: .18em; }
-  .masthead h1 em { font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif; font-weight: 400; }
-  .masthead-status { display: flex; align-items: center; gap: 14px; }
-  .sync-status { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); font-size: 10px; white-space: nowrap; }
-  .sync-dot { width: 7px; height: 7px; background: var(--good); }
-  .sync-dot.warn { background: var(--waiting); }
-
-  #banners { margin-top: 10px; }
-  .banner { margin: 0 0 6px; padding: 7px 10px; border-left: 4px solid var(--waiting); background: var(--wash); color: var(--waiting); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
-  #error { margin: 10px 0 0; padding-left: 10px; border-left: 4px solid var(--action); color: var(--action); font: 11px/1.45 ui-monospace, "SFMono-Regular", monospace; }
-
-  .board { display: grid; grid-template-columns: minmax(0, 13fr) minmax(360px, 8fr); gap: 0; align-items: start; margin-top: 26px; }
-  .board-column { min-width: 0; }
-  .board-primary { padding-right: 28px; }
-  .board-secondary { padding-left: 28px; border-left: 1px solid var(--ink); }
-  .work-section { --lane: var(--ink-2); min-width: 0; margin-bottom: 28px; }
-  #card-needs_you { --lane: var(--action); }
-  #card-waiting { --lane: var(--waiting); }
-  #card-reviews { --lane: var(--review); }
-  #card-in_progress { --lane: var(--development); }
-  #card-to_do { --lane: var(--ink-2); }
-  #card-lead { --lane: var(--waiting); }
-  #card-shipping { --lane: var(--good); }
-  #card-held, #card-parked { --lane: var(--ink-3); }
-  #card-held .row, #card-parked .row { opacity: .62; }
-  #card-held .row:hover, #card-parked .row:hover { opacity: 1; }
-
-  .section-head {
-    display: grid;
-    grid-template-columns: 92px minmax(0, 1fr) auto;
-    align-items: baseline;
-    gap: 12px;
-    min-height: 43px;
-    margin: 0;
-    padding: 8px 0 9px;
-    border-top: 3px solid var(--ink);
-    border-bottom: 1px solid var(--rule-strong);
-  }
-  .section-code { color: var(--lane); font-size: 9px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
-  .section-title { font-size: 15px; font-weight: 760; letter-spacing: -.012em; }
-  .count { color: var(--ink-3); font-size: 9px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
-
-  .row {
-    position: relative;
-    display: grid;
-    grid-template-columns: 92px minmax(0, 1fr) max-content 34px;
-    gap: 12px;
-    align-items: start;
-    min-height: 48px;
-    padding: 9px 0;
-    border-bottom: 1px solid var(--rule);
-  }
-  .row::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: transparent; }
-  .row:hover { background: var(--hover); }
-  .row:hover::before { background: var(--lane); }
-  .key { padding: 2px 0 0 11px; color: var(--ink-3); font-size: 10.5px; }
-  .key a { color: var(--ink-2); font-weight: 650; }
-  /* Only urgent priorities are drawn. A board where every row carries a badge
-     ranks nothing. */
-  .prio { display: block; margin-top: 2px; color: var(--action); font: 750 8.5px/1.4 ui-monospace, "SFMono-Regular", monospace; letter-spacing: .06em; }
-  .body { min-width: 0; }
-  .summary { overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 630; letter-spacing: -.006em; text-overflow: ellipsis; white-space: nowrap; }
-  .sub { color: var(--ink-3); font: 10px/1.4 ui-monospace, "SFMono-Regular", monospace; font-weight: 400; }
-  .line { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; margin-top: 3px; color: var(--ink-2); font-size: 10.5px; }
-  .pr-link { max-width: 230px; overflow: hidden; font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-  .signals { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
-  .signal { color: var(--ink-2); font: 650 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; white-space: nowrap; }
-  .signal::before { content: "—"; margin-right: 4px; color: var(--ink-3); }
-  .signal.r-bad { color: var(--action); }
-  .signal.r-bad::before { content: "!"; color: var(--action); }
-  .signal.r-good { color: var(--good); }
-  .signal.r-good::before { content: "✓"; color: var(--good); }
-  .signal.r-warn { color: var(--waiting); }
-  .signal.r-warn::before { content: "△"; color: var(--waiting); }
-  .context-line { color: var(--ink-3); font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 10px; }
-  .context-line a, .review-meta a { font-family: ui-monospace, "SFMono-Regular", monospace; }
-  .meta-item { display: inline-flex; align-items: center; }
-  .meta-item + .meta-item::before { content: "/"; margin-right: 7px; color: var(--rule-strong); }
-  .meta-item.age-warn { color: var(--waiting); font-weight: 700; }
-
-  .chip { padding-top: 2px; color: var(--ink-2); font-size: 8.5px; font-weight: 750; letter-spacing: .06em; line-height: 1.45; text-align: right; text-transform: uppercase; white-space: nowrap; }
-  .chip::before { content: "["; color: var(--rule-strong); }
-  .chip::after { content: "]"; color: var(--rule-strong); }
-  .chip.status-draft-pr, .chip.status-in-testing { color: var(--review); }
-  .chip.status-open-pr, .chip.status-in-code-review { color: var(--development); }
-  .chip.status-ready-to-test { color: var(--waiting); }
-  .chip.status-ready-to-merge { color: var(--good); }
-  .chip.status-blocked { color: var(--action); }
-  .section-note { padding: 7px 0 0 104px; color: var(--ink-3); font: 9.5px/1.5 ui-monospace, "SFMono-Regular", monospace; }
-  .empty { padding: 14px 0 18px 104px; border-bottom: 1px solid var(--rule); color: var(--ink-3); font: italic 12px/1.5 "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
-
-  .act { opacity: 0; pointer-events: none; padding: 1px 0; border: 0; border-bottom: 1px solid transparent; background: transparent; color: var(--ink-3); cursor: pointer; font: 8.5px/1.4 ui-monospace, "SFMono-Regular", monospace; text-transform: uppercase; }
-  .act::before { content: "["; }
-  .act::after { content: "]"; }
-  .act:hover { border-bottom-color: currentColor; color: var(--action); }
-  .row:hover .act, .row:focus-within .act { opacity: 1; pointer-events: auto; }
-  /* Borrows the row-action look but is always live, so it must come after the
-     .act defaults above. */
-  .theme-toggle { opacity: 1; pointer-events: auto; letter-spacing: .06em; }
-  /* Prompts that belong to a section or to the day rather than to a row are
-     always live, like the theme toggle. */
-  .section-head .act.copy, .routines .act.copy { opacity: 1; pointer-events: auto; }
-  .routines { display: inline-flex; gap: 8px; margin-right: 12px; }
-  /* Sits inline on the line it belongs to rather than in the action column, so
-     a ticket and each of its pull requests can carry their own. */
-  .act.copy { margin-left: 3px; color: var(--development); }
-  .act.copy::before { content: "⌘ "; }
-  .act.copy::after { content: ""; }
-
-  .reviewer { overflow: hidden; padding-top: 2px; color: var(--review); font-size: 9.5px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-  .reviewer::before { content: "@"; color: var(--ink-3); }
-  .review-meta { font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 9.5px; }
-
-  details.folded > summary { padding: 9px 0; border-top: 1px solid var(--rule-strong); border-bottom: 1px solid var(--rule); color: var(--ink-3); cursor: pointer; font: 650 9px/1.45 ui-monospace, "SFMono-Regular", monospace; letter-spacing: .08em; list-style-position: inside; text-transform: uppercase; }
-  #hidden-list { max-height: 340px; overflow-x: hidden; overflow-y: auto; scrollbar-color: var(--rule-strong) transparent; scrollbar-width: thin; }
-  #card-reviews { max-height: 540px; overflow-y: auto; scrollbar-color: var(--rule-strong) transparent; scrollbar-width: thin; }
-  #card-reviews .section-head { position: sticky; top: 0; z-index: 1; background: var(--paper); }
-  #hidden-list .row { opacity: .52; }
-  #hidden-list .row:hover { opacity: 1; }
-
-  @media (max-width: 1040px) {
-    .board { grid-template-columns: minmax(0, 1fr); }
-    .board-primary { padding-right: 0; }
-    .board-secondary { padding: 4px 0 0; border-left: 0; }
-  }
-  @media (max-width: 640px) {
-    main { padding: 18px 14px 44px; }
-    .masthead { gap: 14px; padding-top: 10px; }
-    .masthead h1 { font-size: 36px; }
-    .board { margin-top: 20px; }
-    .section-head { grid-template-columns: 72px minmax(0, 1fr) auto; }
-    .row { grid-template-columns: 72px minmax(0, 1fr) 26px; gap: 8px; }
-    .chip { grid-column: 2; grid-row: 2; justify-self: start; padding-top: 0; text-align: left; }
-    .act { grid-column: 3; grid-row: 1; opacity: 1; pointer-events: auto; }
-    .empty, .section-note { padding-left: 80px; }
-    .summary { white-space: normal; }
-    .reviewer { max-width: 72px; }
-  }
-  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 </style>
 </head>
 <body>
 <main>
   <header class="masthead">
-    <h1><span>IN</span><span class="joiner">–</span><em>FLIGHT</em></h1>
-    <div class="masthead-status">
-      <span class="routines" id="routines"></span>
-      <button type="button" class="act theme-toggle" id="theme-toggle" aria-live="polite">system</button>
-      <span class="sync-status"><span class="sync-dot" id="sync-dot"></span><span id="refreshed" aria-live="polite">syncing…</span></span>
-    </div>
+    <span class="logo" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M3.5 12.5 12.5 3.5M6 3.5h6.5V10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    <h1>In-flight</h1>
+    <span class="today" id="today"></span>
+    <span class="spacer"></span>
+    <span class="routines" id="routines"></span>
+    <button type="button" class="pill theme-toggle" id="theme-toggle" aria-live="polite"></button>
+    <span class="sync"><span class="sync-dot" id="sync-dot"></span><span id="refreshed" aria-live="polite">syncing…</span></span>
   </header>
   <div id="banners"></div>
   <div id="error" hidden></div>
-  <div class="board">
-    <div class="board-column board-primary">
-      <section class="work-section" id="card-needs_you"></section>
-      <section class="work-section" id="card-waiting"></section>
-    </div>
-    <aside class="board-column board-secondary" aria-label="Review and development queues">
-      <section class="work-section" id="card-reviews"></section>
-      <section class="work-section" id="card-in_progress"></section>
-      <section class="work-section" id="card-to_do"></section>
-      <section class="work-section" id="card-lead"></section>
-      <section class="work-section" id="card-shipping"></section>
-      <section class="work-section" id="card-held"></section>
-      <section class="work-section" id="card-parked"></section>
-      <section class="work-section" hidden id="card-hidden">
-        <details class="folded" id="hidden-details"><summary id="hidden-summary">Hidden</summary><div id="hidden-list"></div></details>
-      </section>
-    </aside>
-  </div>
+
+  <section aria-labelledby="move-title">
+    <div class="head"><h2 id="move-title">Your move</h2><span class="n" id="move-count"></span></div>
+    <div class="tray" id="tray"></div>
+  </section>
+
+  <section aria-labelledby="flight-title">
+    <div class="head quiet"><h2 id="flight-title">In flight</h2></div>
+    <div class="pipeline" id="pipeline"></div>
+  </section>
+
+  <div class="shelf" id="shelf"></div>
 </main>
 <script>
   const REFRESH_MS = 300_000;
-  const SECTIONS = [
-    { id: "needs_you", label: "Needs you", code: "01 / your move" },
-    { id: "waiting", label: "Waiting on others", code: "02 / waiting" },
-    { id: "in_progress", label: "In progress", code: "04 / building" },
-    { id: "to_do", label: "To do", code: "05 / queued" },
-    { id: "lead", label: "Needs an owner", code: "06 / unowned" },
-    { id: "held", label: "Held", code: "08 / held" },
-    { id: "parked", label: "Parked", code: "09 / parked" },
-  ];
+  // Where each section the model emits is drawn. Your move is the tray on top;
+  // everything nobody needs from you yet rides the pipeline by workflow stage;
+  // what is frozen or abandoned sits on the shelf, folded.
+  const PLACEMENT = {
+    needs_you: "tray",
+    waiting: "pipeline",
+    in_progress: "pipeline",
+    to_do: "pipeline",
+    lead: "pipeline",
+    held: "shelf",
+    parked: "shelf",
+  };
+  // Stage by Jira status, in workflow order. Merged-not-released is the sixth.
+  const STAGES = ["To do", "Building", "Review", "QA", "Merge"];
+  const STAGE_OF_STATUS = {
+    "to do": 0, ready: 0, "need clarification": 0,
+    "in progress": 1, "draft pr": 1,
+    "in design review": 2, "in code review": 2, "open pr": 2,
+    "ready to test": 3, "in testing": 3,
+    "ready to merge": 4,
+  };
+  const stageOf = (item) =>
+    STAGE_OF_STATUS[String(item.status ?? "").toLowerCase()] ?? (item.statusCategory === "new" ? 0 : 1);
+
   const BAD = ["changes requested", "CI failing", "conflicts with base"];
   const GOOD = ["CI green", "QA passed · ready to merge", "approved · ready to merge", "approved · awaiting QA", "approved · in QA", "approved · move to QA", "approved"];
   const STALE_REVIEW_DAYS = 3;
@@ -287,6 +307,16 @@
     return false;
   };
 
+  const ICON = {
+    play: `<svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2v8l7-4z" fill="currentColor"/></svg>`,
+    check: `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="m2.5 6.2 2.3 2.3 4.7-5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    hide: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8s2.2-4.5 6-4.5S14 8 14 8s-2.2 4.5-6 4.5S2 8 2 8Z" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.8" stroke="currentColor" stroke-width="1.4"/><path d="m3 13 10-10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`,
+    restore: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 6.5h6.25a3 3 0 0 1 0 6H6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="m6 3.8-2.7 2.7L6 9.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    system: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="5.75" stroke="currentColor" stroke-width="1.4"/><path d="M8 2.25a5.75 5.75 0 0 1 0 11.5Z" fill="currentColor"/></svg>`,
+    light: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`,
+    dark: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>`,
+  };
+
   const THEMES = ["system", "light", "dark"];
   let theme = "system";
   try {
@@ -297,8 +327,10 @@
     if (theme === "system") delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = theme;
     const button = document.getElementById("theme-toggle");
-    button.textContent = theme;
-    button.title = `Theme: ${theme} — click for ${THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length]}`;
+    const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    button.innerHTML = ICON[theme];
+    button.title = `Theme: ${theme} — click for ${next}`;
+    button.setAttribute("aria-label", `theme: ${theme}`);
   };
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -310,6 +342,11 @@
     if (m < 1440) return `${Math.round(m / 60)}h`;
     return `${Math.round(m / 1440)}d`;
   };
+  const link = (href, text, cls = "") =>
+    href ? `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener">${text}</a>` : `<span class="${cls}">${text}</span>`;
+  // Jira statuses arrive in whatever case each board chose.
+  const sentence = (status) =>
+    String(status ?? "").toLowerCase().replace(/^./, (c) => c.toUpperCase()).replace(/\bpr\b/g, "PR").replace(/\bqa\b/g, "QA");
 
   // A failed refresh stays on screen until one succeeds. Cleared after a few
   // seconds, a board whose server had stopped looked healthy — green dot, old
@@ -321,7 +358,7 @@
     document.getElementById("sync-dot").classList.add("warn");
   };
 
-  const reasonSpan = (reason) => {
+  const reasonTone = (reason) => {
     // "awaiting @alice +1 · 4d" and "re-review @bob · 4d" both carry a wait; a
     // pull request with nobody assigned is stalled at any age.
     const waiting = /^(awaiting|re-review)/.test(reason);
@@ -331,120 +368,170 @@
     // and merge-ready work renders as undifferentiated grey.
     const base = age ? reason.slice(0, age.index).trim() : reason;
     const stale = age && Number(age[1]) >= (QA_WAITS.includes(base) ? QA_AGE_WARN_DAYS : STALE_REVIEW_DAYS);
-    const cls = BAD.includes(base) || /open thread/.test(reason) || /^CI stuck/.test(reason) ? "r-bad"
+    return BAD.includes(base) || /open thread/.test(reason) || /^CI stuck/.test(reason) ? "r-bad"
       : /^(no reviewer requested|re-request)/.test(reason) || /bot thread/.test(reason) || /open follow-up/.test(reason)
         || /^blocked · behind/.test(reason) || /^stack root/.test(reason)
         || ((waiting || QA_WAITS.includes(base)) && stale) ? "r-warn"
       : GOOD.includes(base) ? "r-good" : "";
-    return `<span class="signal ${cls}">${esc(reason)}</span>`;
+  };
+  // The clock rides at the end of a label; it is drawn apart from the words.
+  const splitAge = (reason) => {
+    const m = reason.match(/^(.*?)\s*·\s*(\d+d)$/);
+    return m ? { text: m[1], age: m[2] } : { text: reason, age: null };
+  };
+  const tag = (reason, tone = reasonTone(reason)) => {
+    const { text, age } = splitAge(reason);
+    return `<span class="tag ${tone}" title="${esc(reason)}">${esc(text)}${age ? `<span class="age">${esc(age)}</span>` : ""}</span>`;
+  };
+  // A wait names who owes the next move, which is a different question from
+  // what is wrong, so pipeline cards draw it as its own line.
+  const isWait = (reason) =>
+    /^(awaiting|re-review|re-request|no reviewer requested)/.test(reason) || QA_WAITS.includes(splitAge(reason).text);
+  const waitLine = (reason) => {
+    const { text, age } = splitAge(reason);
+    return `<div class="wait ${reasonTone(reason)}" title="${esc(reason)}"><span class="who">${esc(text)}</span>${age ? `<span class="age">${esc(age)}</span>` : ""}</div>`;
   };
 
   const repoName = (repo) => String(repo ?? "").split("/").at(-1) || repo;
-  const statusClass = (status) => `status-${String(status ?? "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+  // The repo is only worth naming when it is not the one nearly everything is in.
+  const prLabel = (pr) => `${pr.repo && pr.repo !== lastData?.primaryRepo ? `${esc(repoName(pr.repo))} ` : ""}#${pr.number}`;
 
   // The row's next action, ready to paste into Claude Code. The button says
   // which skill it is rather than "copy", because the name is the thing worth
   // knowing before you click.
-  const actionButton = (action) =>
+  const actionButton = (action, variant = "", suffix = "") =>
     action
-      ? ` <button type="button" class="act copy" data-copy="${esc(action.prompt)}" title="${esc(action.prompt)}" aria-label="copy prompt: ${esc(action.prompt)}">${esc(action.skill)}</button>`
+      ? `<button type="button" class="skill ${variant}" data-copy="${esc(action.prompt)}" title="${esc(action.prompt)}" aria-label="copy prompt: ${esc(action.prompt)}">${ICON.play}${esc(action.skill)}${suffix}</button>`
       : "";
+  const hideButton = (action, id, state, label) =>
+    `<button type="button" class="act" data-action="${action}" data-id="${esc(id)}" data-state="${esc(state)}" aria-label="${action} ${esc(label)}" title="${action}">${ICON[action]}</button>`;
 
-  const prLine = (pr) =>
-    `<div class="line"><a class="pr-link" href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(repoName(pr.repo))} #${pr.number}</a><span class="signals">${pr.reasons
-      .map(reasonSpan)
-      .join("")}</span>${actionButton(pr.action)}</div>`;
+  const prRefs = (prs) => (prs ?? []).map((pr) => link(pr.url, `#${pr.number}`)).join(", ");
 
-  const prRefs = (prs) => (prs ?? []).map((pr) => `<a href="${esc(pr.url)}" target="_blank" rel="noopener">#${pr.number}</a>`).join(", ");
-
-  const workRow = (item, action) => {
-    // A pull request carrying someone else's ticket, or a finished one, still
-    // links it; only the row's own ticket is ever acted on.
-    const label = item.key ?? item.ticketKey;
-    const key = label ? `<a href="${esc(item.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : "—";
-    const prio = item.urgent ? `<span class="prio">${esc(String(item.priority).split("-")[0])}</span>` : "";
-    // A subtask rides its parent's branch; a story names the epic it belongs
-    // to. Both were already fetched, and only the first was ever shown — which
-    // is what made twelve tickets of one effort read as twelve unrelated rows.
-    const subtask = item.parentKey
-      ? item.isSubtask
-        ? ` <span class="sub">· subtask of ${esc(item.parentKey)}</span>`
-        : ` <span class="sub">· ${esc(String(item.parentType ?? "parent").toLowerCase())} ${esc(item.parentKey)}</span>`
-      : "";
+  // A subtask rides its parent's branch; a story names the epic it belongs to.
+  // Both were already fetched, and only the first was ever shown — which is
+  // what made twelve tickets of one effort read as twelve unrelated rows.
+  const parentLine = (item) => {
+    if (!item.parentKey) return "";
+    const name = item.parentSummary ?? `${String(item.parentType ?? "parent").toLowerCase()} ${item.parentKey}`;
+    return `<div class="sub" title="${esc(item.parentKey)}">${item.isSubtask ? "Subtask of " : ""}${esc(name)}</div>`;
+  };
+  // A ticket with no open pull request still says where its code is.
+  const noPrTag = (item) => {
+    if (!item.key || item.prs.length > 0) return "";
     const parentLinks = prRefs(item.parentPrs);
     const mergedLinks = prRefs(item.mergedPrs);
-    const noPr = item.key && item.prs.length === 0
-      ? `<div class="line context-line">${parentLinks ? `on parent ${esc(item.parentKey)} · ${parentLinks}` : mergedLinks ? `PR ${mergedLinks} merged` : "no open PR"}${actionButton(item.action)}</div>`
-      : "";
-    return `<div class="row"><span class="key">${key}${prio}</span>
-      <div class="body"><div class="summary" title="${esc(item.summary)}">${esc(item.summary)}${subtask}</div>
-      ${item.prs.map(prLine).join("")}${noPr}</div>
-      <span class="chip ${statusClass(item.status)}">${esc(item.status)}</span>
-      <button type="button" class="act" data-action="${action}" data-id="${esc(item.id)}" data-state="${esc(itemState(item))}" aria-label="${action} ${esc(item.key ?? item.summary)}">${action}</button></div>`;
+    const text = parentLinks ? `on parent ${esc(item.parentKey)} · ${parentLinks}` : mergedLinks ? `PR ${mergedLinks} merged` : "no open PR";
+    return `<div class="tags"><span class="tag">${text}</span></div>`;
+  };
+  // A pull request carrying someone else's ticket, or a finished one, still
+  // links it; only the row's own ticket is ever acted on.
+  const identity = (item) => {
+    const label = item.key ?? item.ticketKey;
+    if (label) return link(item.url, esc(label), "key");
+    const pr = item.prs[0];
+    return pr ? link(pr.url, prLabel(pr), "key") : "—";
+  };
+  const prio = (item) => (item.urgent ? `<span class="badge prio">${esc(String(item.priority).split("-")[0])}</span>` : "");
+  const diffOf = (prs) => {
+    if (!prs.length) return "";
+    const add = prs.reduce((n, pr) => n + (pr.additions ?? 0), 0);
+    const del = prs.reduce((n, pr) => n + (pr.deletions ?? 0), 0);
+    return `<span class="diff">+${add} −${del}</span>`;
+  };
+  // Every pull request's action, then the ticket's own; one per pull request is
+  // labelled with its number when there is more than one to tell apart.
+  const actionsOf = (item) => [
+    ...item.prs.filter((pr) => pr.action).map((pr) => ({ action: pr.action, suffix: item.prs.length > 1 ? ` #${pr.number}` : "" })),
+    ...(item.action ? [{ action: item.action, suffix: "" }] : []),
+  ];
+
+  // ── Your move: a card per thing to act on ────────────────────────────────
+  const moveCard = (item, action) => {
+    const single = item.prs.length === 1 ? item.prs[0] : null;
+    const body = single
+      ? `<div class="tags">${single.reasons.map((r) => tag(r)).join("")}</div>`
+      : item.prs.map((pr) => `<div class="pr-line">${link(pr.url, prLabel(pr), "num")}${pr.reasons.map((r) => tag(r)).join("")}</div>`).join("");
+    const actions = actionsOf(item);
+    return `<article class="move">
+      <div class="kicker"><span class="kind">${esc(sentence(item.status))}</span>${identity(item)}${single && (item.key ?? item.ticketKey) ? link(single.url, prLabel(single), "num") : ""}<span class="spacer"></span>${prio(item)}<span class="tools">${hideButton(action, item.id, itemState(item), item.key ?? item.summary)}</span></div>
+      <h3>${link(item.url ?? single?.url, esc(item.summary))}</h3>${parentLine(item)}
+      ${body}${noPrTag(item)}
+      <footer>${actions.map((a, i) => actionButton(a.action, i === 0 ? "primary" : "", a.suffix)).join("")}${diffOf(item.prs)}</footer></article>`;
   };
 
-  const reviewRow = (pr, action) => {
-    const ciSpan = pr.ci === "failure" ? `<span class="meta-item">${reasonSpan("CI failing")}</span>` : pr.ci === "success" ? `<span class="meta-item">${reasonSpan("CI green")}</span>` : "";
+  const reviewCard = (pr, action) => {
     // How long it has waited on you, which is not how long it has been open.
     const waited = pr.askedDays ?? pr.ageDays;
-    const details = [
-      pr.ticketKey ? `<span class="meta-item"><a href="${esc(pr.ticketUrl)}" target="_blank" rel="noopener">${esc(pr.ticketKey)}</a></span>` : "",
-      `<span class="meta-item"><a href="${esc(pr.url)}" target="_blank" rel="noopener">PR #${pr.number}</a></span>`,
-      `<span class="meta-item">+${pr.additions}/−${pr.deletions}</span>`,
-      `<span class="meta-item ${waited >= STALE_REVIEW_DAYS ? "age-warn" : ""}">${pr.askedDays === null || pr.askedDays === undefined ? "open" : "asked"} ${waited}d</span>`,
-      pr.viewerReviewState ? `<span class="meta-item">re-requested</span>` : "",
-      pr.isDraft ? `<span class="meta-item">draft</span>` : "",
-      ciSpan,
-    ].filter(Boolean);
-    return `<div class="row"><span class="key reviewer" title="${esc(pr.author)}">${esc(pr.author)}</span>
-      <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
-      <div class="line review-meta">${details.join("")}${actionButton(pr.action)}</div></div>
-      <span class="chip">${esc(repoName(pr.repo))}</span>
-      <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" data-state="${esc(reviewState(pr))}" aria-label="${action} review ${esc(pr.title)}">${action}</button></div>`;
+    const asked = `${pr.askedDays === null || pr.askedDays === undefined ? "open" : "asked"} · ${waited}d`;
+    const tags = [
+      pr.ci === "failure" ? tag("CI failing") : pr.ci === "success" ? tag("CI green") : pr.ci ? tag("CI running") : "",
+      tag(asked, waited >= STALE_REVIEW_DAYS ? "r-warn" : ""),
+      pr.isDraft ? tag("draft") : "",
+    ].join("");
+    return `<article class="move review">
+      <div class="kicker"><span class="kind">${pr.viewerReviewState ? "Re-review" : "Review"}</span><span>@${esc(pr.author)}</span>${link(pr.url, prLabel(pr), "num")}${pr.ticketKey ? link(pr.ticketUrl, esc(pr.ticketKey), "key") : ""}<span class="spacer"></span><span class="tools">${hideButton(action, pr.id, reviewState(pr), `review ${pr.title}`)}</span></div>
+      <h3>${link(pr.url, esc(pr.title))}</h3>
+      <div class="tags">${tags}</div>
+      <footer>${actionButton(pr.action, "primary")}${diffOf([pr])}</footer></article>`;
   };
 
-  const shippingRow = (pr, action) =>
-    `<div class="row"><span class="key">${pr.ticketKey ? `<a href="${esc(pr.ticketUrl)}" target="_blank" rel="noopener">${esc(pr.ticketKey)}</a>` : "—"}</span>
-      <div class="body"><div class="summary" title="${esc(pr.title)}">${esc(pr.title)}</div>
-      <div class="line review-meta"><span class="meta-item"><a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(repoName(pr.repo))} #${pr.number}</a></span><span class="meta-item">merged ${esc(ago(Date.parse(pr.mergedAt)))} ago</span><span class="meta-item">after ${esc(pr.tag)}</span></div></div>
-      <span class="chip status-ready-to-merge">unreleased</span>
-      <button type="button" class="act" data-action="${action}" data-id="${esc(pr.id)}" data-state="${esc(shippingState())}" aria-label="${action} ${esc(pr.title)}">${action}</button></div>`;
+  // ── Pipeline: a compact card per piece of work ───────────────────────────
+  const workCard = (item, action) => {
+    const single = item.prs.length === 1 ? item.prs[0] : null;
+    const problems = (pr) => pr.reasons.filter((r) => !isWait(r)).map((r) => tag(r)).join("");
+    const body = single
+      ? `<div class="tags">${problems(single)}</div>`
+      : item.prs.map((pr) => `<div class="pr-line">${link(pr.url, prLabel(pr), "num")}${problems(pr)}</div>`).join("");
+    const waits = item.prs.flatMap((pr) => pr.reasons.filter(isWait)).map(waitLine).join("");
+    const owner = item.section === "lead" ? `<span class="badge owner">no owner</span>` : "";
+    return `<div class="card">
+      <div class="kicker">${identity(item)}${single && (item.key ?? item.ticketKey) ? link(single.url, prLabel(single), "num") : ""}${owner}${prio(item)}<span class="spacer"></span><span class="tools">${actionsOf(item).map((a) => actionButton(a.action, "small", a.suffix)).join("")}${hideButton(action, item.id, itemState(item), item.key ?? item.summary)}</span></div>
+      <h4 title="${esc(item.summary)}">${link(item.url ?? single?.url, esc(item.summary))}</h4>${parentLine(item)}
+      ${body}${noPrTag(item)}${waits}</div>`;
+  };
 
-  // A stack is one piece of news, not eleven. Everything queued behind the same
-  // unmerged change folds into a single line that names the change to fix; the
-  // rows stay one click away.
+  const shippingCard = (pr, action) => {
+    const title = pr.ticketKey && pr.title.startsWith(pr.ticketKey) ? pr.title.slice(pr.ticketKey.length).trim() : pr.title;
+    return `<div class="card">
+      <div class="kicker">${pr.ticketKey ? link(pr.ticketUrl, esc(pr.ticketKey), "key") : ""}${link(pr.url, prLabel(pr), "num")}<span class="spacer"></span><span>${esc(ago(Date.parse(pr.mergedAt)))}</span><span class="tools">${hideButton(action, pr.id, shippingState(), pr.title)}</span></div>
+      <h4 title="${esc(pr.title)}">${link(pr.url, esc(title))}</h4>
+      <div class="tags">${tag("merged", "r-good")}${tag(`after ${pr.tag}`)}</div></div>`;
+  };
+
+  // A stack is one piece of news, not eleven. Two or more changes queued behind
+  // the same unmerged one fold into a single line that names the change to fix;
+  // the cards stay one click away. Only on the pipeline, where the work is
+  // nobody's move: a blocked change with its own defect is still yours.
   const blockedRootOf = (item) => {
     const blocked = item.prs.filter((pr) => pr.stack?.blockedBy);
     return blocked.length > 0 && blocked.length === item.prs.length ? blocked[0].stack.blockedBy : null;
   };
-
-  // Only where the rows are nobody's move. A blocked change that has its own
-  // defect — bot findings to triage, feedback to answer — is still your move,
-  // and you can push to a stacked branch perfectly well; folding those away
-  // left "Needs you · 3 items" rendering nothing at all.
-  const sectionRows = (items, action, collapseStacks = false) => {
-    const rows = [];
-    const stacks = new Map();
+  const stageCards = (items, action) => {
+    const byRoot = new Map();
     for (const item of items) {
-      const root = collapseStacks ? blockedRootOf(item) : null;
-      if (root === null) rows.push(workRow(item, action));
-      else stacks.set(root, [...(stacks.get(root) ?? []), item]);
+      const root = blockedRootOf(item);
+      if (root !== null) byRoot.set(root, [...(byRoot.get(root) ?? []), item]);
     }
-    for (const [root, members] of stacks) {
-      rows.push(
-        `<details class="folded"><summary>Blocked behind #${root} · ${members.length} ${members.length === 1 ? "change" : "changes"}</summary>` +
-          members.map((item) => workRow(item, action)).join("") +
-          `</details>`,
-      );
+    const out = [];
+    const folded = new Set();
+    for (const item of items) {
+      const root = blockedRootOf(item);
+      const members = root === null ? [] : byRoot.get(root);
+      if (members.length < 2) out.push(workCard(item, action));
+      else if (!folded.has(root)) {
+        folded.add(root);
+        out.push(`<details class="stack"><summary>Blocked behind #${root}<span class="n">${members.length}</span></summary><div class="cards">${members.map((m) => workCard(m, action)).join("")}</div></details>`);
+      }
     }
-    return rows;
+    return out.join("");
   };
 
-  const card = (el, code, label, rows, emptyText, total = rows.length, headAction = null) => {
-    const count = `${total} ${total === 1 ? "item" : "items"}`;
-    el.innerHTML = `<h2 class="section-head"><span class="section-code">${code}</span><span class="section-title">${label}${actionButton(headAction)}</span><span class="count">${count}</span></h2>` +
-      (rows.length ? rows.join("") : `<div class="empty">${emptyText}</div>`);
-  };
+  const stageColumn = (index, label, count, cards, extra = "") =>
+    `<section class="stage" aria-label="${esc(label)}"><div class="stage-head"><span class="step">${index + 1}</span><b>${esc(label)}</b><span class="n">${count}</span><span class="spacer"></span>${extra.head ?? ""}</div>${cards}${extra.foot ?? ""}</section>`;
+
+  const drawer = (label, cards, count) =>
+    count ? `<details class="drawer"><summary>${esc(label)} <span class="n">${count}</span></summary><div class="cards">${cards}</div></details>` : "";
 
   const render = (data) => {
     const banners = [];
@@ -455,48 +542,63 @@
       }
     }
     document.getElementById("banners").innerHTML = banners.join("");
-    document.getElementById("routines").innerHTML = (data.routines ?? []).map(actionButton).join("");
+    document.getElementById("routines").innerHTML = (data.routines ?? []).map((routine) => actionButton(routine).replace('class="skill ', 'class="pill ')).join("");
     document.getElementById("sync-dot").classList.toggle("warn", banners.length > 0);
 
     const shippingItems = data.shipping?.items ?? [];
     const visible = data.items.filter((item) => !isHidden(item.id, itemState(item)));
     const visibleReviews = data.reviewRequests.filter((pr) => !isHidden(pr.id, reviewState(pr)));
     const visibleShipping = shippingItems.filter((pr) => !isHidden(pr.id, shippingState()));
-    const counts = Object.fromEntries(SECTIONS.map((section) => [section.id, visible.filter((item) => item.section === section.id).length]));
-    for (const section of SECTIONS) {
-      const items = visible.filter((i) => i.section === section.id);
-      card(document.getElementById(`card-${section.id}`), section.code, section.label,
-        sectionRows(items, "hide", section.id === "waiting"), "nothing here", items.length);
-    }
+    // A section the board has no place for yet rides the pipeline rather than
+    // vanishing.
+    const placed = (where) => visible.filter((item) => (PLACEMENT[item.section] ?? "pipeline") === where);
 
-    const shippingNote = data.shipping?.error ?? data.shipping?.note;
-    card(document.getElementById("card-shipping"), "07 / shipping", "Merged, not shipped",
-      visibleShipping.map((pr) => shippingRow(pr, "hide")),
-      data.shipping?.error ? esc(data.shipping.error) : "everything merged is released",
-      visibleShipping.length, visibleShipping.length > 0 ? data.shipping?.action : null);
+    const mine = placed("tray");
+    const moves = [...mine.map((item) => moveCard(item, "hide")), ...visibleReviews.map((pr) => reviewCard(pr, "hide"))];
+    document.getElementById("move-count").textContent = moves.length;
+    document.getElementById("tray").innerHTML = moves.length ? moves.join("") : `<div class="tray-clear">All clear</div>`;
+
+    const flowing = placed("pipeline");
+    const columns = STAGES.map((label, index) => {
+      const items = flowing.filter((item) => stageOf(item) === index);
+      return stageColumn(index, label, items.length, stageCards(items, "hide"));
+    });
     // Stated whether or not there are rows: "everything merged is released" over
     // a repo the board could not check is the one claim it must not make.
     // An error with no rows is already the empty text.
+    const shippingNote = data.shipping?.error ?? data.shipping?.note;
+    let shippingFoot = "";
     if (shippingNote && (visibleShipping.length > 0 || !data.shipping?.error)) {
-      document.getElementById("card-shipping").insertAdjacentHTML(
-        "beforeend", `<div class="section-note">${esc(shippingNote)}</div>`);
+      shippingFoot = `<div class="stage-note">${esc(shippingNote)}</div>`;
     }
+    const shippingCards = visibleShipping.length
+      ? visibleShipping.map((pr) => shippingCard(pr, "hide")).join("")
+      : data.shipping?.error ? `<div class="stage-empty">${esc(data.shipping.error)}</div>` : "";
+    columns.push(stageColumn(STAGES.length, "Unreleased", visibleShipping.length, shippingCards, {
+      head: visibleShipping.length > 0 ? actionButton(data.shipping?.action, "small") : "",
+      foot: shippingFoot,
+    }));
+    document.getElementById("pipeline").innerHTML = columns.join("");
 
-    const attention = counts.needs_you + visibleReviews.length;
+    const attention = moves.length;
     document.title = attention > 0 ? `(${attention}) In-flight` : "In-flight";
-
-    card(document.getElementById("card-reviews"), "03 / reviews", "Reviews requested of you",
-      visibleReviews.map((pr) => reviewRow(pr, "hide")), "nothing waiting on your review");
 
     const visibleIds = new Set([...visible, ...visibleReviews, ...visibleShipping].map((row) => row.id));
     const hiddenRows = [
-      ...data.items.filter((item) => !visibleIds.has(item.id)).map((item) => workRow(item, "restore")),
-      ...data.reviewRequests.filter((pr) => !visibleIds.has(pr.id)).map((pr) => reviewRow(pr, "restore")),
-      ...shippingItems.filter((pr) => !visibleIds.has(pr.id)).map((pr) => shippingRow(pr, "restore")),
+      ...data.items.filter((item) => !visibleIds.has(item.id)).map((item) => workCard(item, "restore")),
+      ...data.reviewRequests.filter((pr) => !visibleIds.has(pr.id)).map((pr) => reviewCard(pr, "restore").replace('class="move review"', 'class="card"')),
+      ...shippingItems.filter((pr) => !visibleIds.has(pr.id)).map((pr) => shippingCard(pr, "restore")),
     ];
-    document.getElementById("card-hidden").hidden = hiddenRows.length === 0;
-    document.getElementById("hidden-summary").textContent = `Hidden · ${hiddenRows.length}`;
-    document.getElementById("hidden-list").innerHTML = hiddenRows.join("");
+    const shelved = placed("shelf");
+    // Keep drawers open across refreshes.
+    const open = new Set([...document.querySelectorAll("#shelf details[open]")].map((el) => el.dataset.drawer));
+    document.getElementById("shelf").innerHTML = [
+      ["held", "Held", shelved.filter((item) => item.section === "held")],
+      ["parked", "Parked", shelved.filter((item) => item.section === "parked")],
+    ].map(([id, label, items]) => drawer(label, items.map((item) => workCard(item, "hide")).join(""), items.length).replace("<details", `<details data-drawer="${id}"`))
+      .concat(drawer("Hidden", hiddenRows.join(""), hiddenRows.length).replace("<details", `<details data-drawer="hidden"`))
+      .join("");
+    for (const id of open) document.querySelector(`#shelf details[data-drawer="${id}"]`)?.setAttribute("open", "");
   };
 
   const refresh = async () => {
@@ -515,8 +617,12 @@
   const showRefreshed = () => {
     if (!lastFetched) return;
     const relative = ago(lastFetched);
-    document.getElementById("refreshed").textContent = relative === "now" ? "updated just now" : `updated ${relative} ago`;
+    const el = document.getElementById("refreshed");
+    el.textContent = relative === "now" ? "just now" : `${relative} ago`;
+    el.title = `updated ${new Date(lastFetched).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
   };
+
+  document.getElementById("today").textContent = new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
   document.getElementById("theme-toggle").addEventListener("click", () => {
     theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
@@ -525,11 +631,11 @@
   });
 
   document.querySelector("main").addEventListener("click", async (event) => {
-    const target = event.target;
     // Copying is all this does: the prompt goes to the clipboard and the reader
     // decides whether to run it. The board never runs anything itself.
-    if (target.dataset.copy !== undefined) {
-      const text = target.dataset.copy;
+    const copy = event.target.closest("[data-copy]");
+    if (copy) {
+      const text = copy.dataset.copy;
       try {
         await navigator.clipboard.writeText(text);
       } catch {
@@ -542,12 +648,13 @@
         document.execCommand("copy");
         area.remove();
       }
-      const original = target.textContent;
-      target.textContent = "copied";
-      setTimeout(() => { target.textContent = original; }, 1200);
+      const original = copy.innerHTML;
+      copy.innerHTML = `${ICON.check}copied`;
+      setTimeout(() => { copy.innerHTML = original; }, 1200);
       return;
     }
-    if (!target.classList.contains("act")) return;
+    const target = event.target.closest(".act");
+    if (!target) return;
     const { action, id, state } = target.dataset;
     if (action === "hide") hidden.set(id, state ?? null);
     else hidden.delete(id);

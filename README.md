@@ -14,6 +14,24 @@ A local, read-only dashboard for ongoing work. It joins your assigned Jira ticke
 - work someone has deliberately frozen;
 - draft prototypes nobody has touched in weeks, out of the way.
 
+## Layout
+
+The board reads top to bottom as *mine, then everyone's, then nobody's*:
+
+- **Your move** is a tray of cards across the top — every row the model puts in
+  `needs_you`, plus reviews someone asked of you. Each card leads with its stage,
+  carries every signal, and ends in the skill that does the next step.
+- **In flight** is the workflow drawn left to right: To do, Building, Review, QA,
+  Merge, and Unreleased. Everything waiting on someone else, being built, queued,
+  or unowned rides the column its Jira status puts it in (`STAGE_OF_STATUS` in
+  `index.html`); merged-not-released is the sixth stage. A card keeps what is
+  wrong (tags) apart from who owes the next move and for how long (the line at
+  its foot), since those need different responses.
+- **Held**, **Parked** and **Hidden** sit folded on the shelf at the bottom.
+
+Where each model section is drawn lives in `PLACEMENT`; a section it has never
+heard of falls back to the pipeline rather than vanishing.
+
 ## Signals
 
 Every row states both what is wrong and where the review stands, because those
@@ -129,8 +147,8 @@ sitting on a twelfth that conflicts are not eleven pieces of good news, they are
 one merge conflict — so everything below the root reads `blocked · behind #7392`
 before anything else, and never claims to be ready for anything. The root states
 what is riding on it (`stack root · 11 behind`) and sorts to the top of its
-section. In the board, a whole blocked chain folds into one line naming the
-change to fix; the rows stay one click away.
+section. In the pipeline, two or more changes blocked behind the same one fold
+into one line naming the change to fix; the cards stay one click away.
 
 A chain can start on someone else's open pull request, which the board never
 fetched as one of yours, so each pull request also asks whether its base branch
@@ -145,8 +163,10 @@ GitHub retargets those to the default branch shortly.
 
 ## In progress, to do, and unowned
 
-Work with no pull request yet answers three different questions, so it gets
-three sections rather than one queue that mixes them. **In progress** and
+Work with no pull request yet answers three different questions, so the model
+gives it three sections rather than one queue that mixes them. On the board,
+in progress is the Building column, to do is the To do column, and unowned work
+sits in To do too, badged `no owner` so it never reads as yours. **In progress** and
 **To do** split on Jira's status *category*, not the status name, which every
 board is free to rename. A status that hands the ticket to someone else —
 `waitingStatuses`: design review, code review, QA, READY TO MERGE, or a CSM bug
@@ -160,7 +180,7 @@ while a decision is pending is queued.
 
 A draft with no ticket of yours has no status to go by, so idleness decides:
 one nobody has pushed to for `parkedDraftDays` (fourteen) is **Parked**, folded
-out of the way at the bottom of the board. One that carries someone else's
+on the shelf at the bottom of the board. One that carries someone else's
 ticket key, or a finished one, still links it.
 
 **Needs an owner** is tickets you are Engineering Lead on that nobody has been
@@ -196,8 +216,9 @@ than a review queue, so it gets a longer fuse before the same amber.
 A review requested of you reads `asked 2d`, timed from the newest request
 naming you (or a team of yours), not from when the pull request was opened.
 
-`[SYSTEM]` in the masthead cycles the theme to `[LIGHT]` or `[DARK]` and remembers
-the choice in the browser; `[SYSTEM]` follows the OS.
+The half-filled circle in the masthead cycles the theme to light (sun) or dark
+(moon) and remembers the choice in the browser; the circle follows the OS. Every
+colour is one `light-dark()` token, so the two themes cannot drift apart.
 
 ## Merged, not shipped
 

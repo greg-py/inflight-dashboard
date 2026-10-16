@@ -20,6 +20,8 @@ const buildSnapshot = async () => {
     reviewRequests: upstream.github.reviewRequests,
     shipping: { ...upstream.shipping, action: promptForShipping(upstream.shipping) },
     routines: routinePrompts(CONFIG.pod),
+    // Lets the board name a pull request's repo only when it is not this one.
+    primaryRepo: CONFIG.primaryRepo,
   };
 };
 

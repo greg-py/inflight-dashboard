@@ -796,9 +796,16 @@ test("dashboard keeps work queues primary instead of rendering summary metrics",
   const ui = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   assert.equal(ui.includes('id="overview"'), false);
   assert.equal(ui.includes('class="metric'), false);
-  for (const queue of ["needs_you", "waiting", "reviews", "in_progress", "to_do", "lead", "shipping", "held", "parked"]) {
-    assert.equal(ui.includes(`id="card-${queue}"`), true, `${queue} queue should remain visible`);
+  // Every section the model emits has a place on the board, and one it has
+  // never heard of falls back to the pipeline rather than vanishing.
+  const placement = ui.match(/const PLACEMENT = \{([\s\S]*?)\};/)[1];
+  for (const queue of ["needs_you", "waiting", "in_progress", "to_do", "lead", "held", "parked"]) {
+    assert.match(placement, new RegExp(`\\b${queue}:`), `${queue} queue should remain visible`);
   }
+  assert.ok(ui.includes('(PLACEMENT[item.section] ?? "pipeline")'));
+  // Reviews asked of you share the top tray; merged-not-released is the last stage.
+  assert.ok(ui.includes('visibleReviews.map((pr) => reviewCard(pr, "hide"))'));
+  assert.ok(ui.includes('stageColumn(STAGES.length, "Unreleased"'));
 });
 
 test("every reason the model emits has a severity the UI can classify", () => {
@@ -842,9 +849,8 @@ test("the theme toggle overrides the system scheme in both directions", () => {
   assert.ok(ui.includes('--paper: light-dark('));
   assert.ok(ui.includes(':root[data-theme="light"] { color-scheme: light; }'));
   assert.ok(ui.includes(':root[data-theme="dark"] { color-scheme: dark; }'));
-  // The row-action defaults set opacity:0, so the toggle's override has to come
-  // after them or the control renders invisible.
-  assert.ok(ui.indexOf(".row:hover .act") < ui.indexOf(".theme-toggle {"));
+  // Card tools hide until hover; the toggle must never be one of them.
+  assert.equal(/class="[^"]*tools[^"]*"[^>]*>[^<]*<button[^>]*theme-toggle/.test(ui), false);
   // The stored choice is applied before the stylesheet, not after first paint.
   assert.ok(ui.indexOf('localStorage.getItem("inflight-theme")') < ui.indexOf("<style>"));
 });
@@ -1321,9 +1327,10 @@ test("a stack only folds away where the rows are nobody's move", () => {
   // A blocked change carrying its own defect is still your move — you can push
   // to a stacked branch — so folding it away left "Needs you" rendering an
   // item count above an empty section.
-  assert.match(ui, /sectionRows\(items, "hide", section\.id === "waiting"\)/);
-  assert.match(ui, /const sectionRows = \(items, action, collapseStacks = false\)/);
-  assert.match(ui, /const root = collapseStacks \? blockedRootOf\(item\) : null;/);
+  // Only pipeline columns fold stacks; the tray draws every card of yours.
+  assert.match(ui, /stageColumn\(index, label, items\.length, stageCards\(items, "hide"\)\)/);
+  assert.match(ui, /const moves = \[\.\.\.mine\.map\(\(item\) => moveCard\(item, "hide"\)\)/);
+  assert.equal(/const moveCard[\s\S]*?\n  \};/.exec(ui)[0].includes("blockedRootOf"), false);
 });
 
 test("work I lead but nobody owns is its own lane, never mixed into my queue", () => {
@@ -1633,7 +1640,8 @@ test("a hidden row comes back when its state changes", () => {
   assert.ok(ui.includes("const hidden = new Map();"));
   assert.ok(ui.includes("if (was === state) return true;"));
   assert.ok(ui.includes("hidden.delete(id);"));
-  assert.ok(ui.includes('data-state="${esc(itemState(item))}"'));
+  assert.ok(ui.includes('data-state="${esc(state)}"'));
+  assert.ok(ui.includes("hideButton(action, item.id, itemState(item)"));
   assert.ok(ui.includes("Array.isArray(stored) ? stored.map((id) => [id, null])"));
 });
 
