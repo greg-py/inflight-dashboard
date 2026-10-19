@@ -26,7 +26,10 @@ The board reads top to bottom as *mine, then everyone's, then nobody's*:
   or unowned rides the column its Jira status puts it in (`STAGE_OF_STATUS` in
   `index.html`); merged-not-released is the sixth stage. A card keeps what is
   wrong (tags) apart from who owes the next move and for how long (the line at
-  its foot), since those need different responses.
+  its foot), since those need different responses. The six stages sit side by
+  side from 1360px, where a card still fits the longest skill name; narrower,
+  they wrap into rows of three, then two, in order, and on a phone they become
+  a strip to swipe. The page itself never scrolls sideways.
 - **Held**, **Parked** and **Hidden** sit folded on the shelf at the bottom.
 
 Where each model section is drawn lives in `PLACEMENT`; a section it has never

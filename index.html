@@ -69,12 +69,12 @@
   svg { flex: none; }
 
   /* ── Masthead ─────────────────────────────────────────────────────────── */
-  .masthead { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+  .masthead { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 14px; margin-bottom: 28px; }
   .logo { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: var(--ink); color: var(--paper); }
   .masthead h1 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.025em; }
   .today { color: var(--ink-3); font-weight: 500; }
   .masthead .spacer { flex: 1; }
-  .routines { display: flex; gap: 8px; }
+  .routines { display: flex; flex-wrap: wrap; gap: 8px; }
   .pill { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border: 0; border-radius: 99px; background: var(--card); box-shadow: var(--shadow-1); color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
   .pill:hover { color: var(--ink); box-shadow: var(--shadow-2); }
   .pill svg { opacity: .55; }
@@ -85,19 +85,21 @@
 
   #banners:empty, #error[hidden] { display: none; }
   #banners { display: grid; gap: 8px; margin: -12px 0 24px; }
-  .banner, #error { padding: 10px 14px; border-radius: var(--r-card); background: var(--amber-soft); color: var(--amber); font: 500 12px/1.45 var(--mono); }
+  .banner, #error { overflow-wrap: anywhere; padding: 10px 14px; border-radius: var(--r-card); background: var(--amber-soft); color: var(--amber); font: 500 12px/1.45 var(--mono); }
   #error { margin: -12px 0 24px; background: var(--red-soft); color: var(--red); }
 
   /* ── Section heads ────────────────────────────────────────────────────── */
   .head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 14px; }
   .head h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.03em; }
   .head .n { color: var(--accent); font: 500 22px var(--mono); letter-spacing: -.04em; }
+  .head .n.zero { color: var(--ink-3); }
   .head.quiet h2 { color: var(--ink-2); font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
 
   /* ── Signals ──────────────────────────────────────────────────────────── */
   .tags { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
-  .tag { display: inline-flex; align-items: center; max-width: 100%; height: 22px; padding: 0 8px; overflow: hidden; border-radius: var(--r-tag); background: var(--neutral-soft); color: var(--ink-2); font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-  .tag .age { margin-left: 5px; font: 500 11px var(--mono); opacity: .75; }
+  /* A signal wraps rather than losing its tail; the age never breaks from it. */
+  .tag { display: inline-block; max-width: 100%; min-height: 22px; padding: 3px 8px; border-radius: var(--r-tag); background: var(--neutral-soft); color: var(--ink-2); font-size: 11.5px; font-weight: 600; line-height: 16px; overflow-wrap: anywhere; }
+  .tag .age { margin-left: 5px; font: 500 11px var(--mono); opacity: .75; white-space: nowrap; }
   .tag.r-bad { background: var(--red-soft); color: var(--red); }
   .tag.r-warn { background: var(--amber-soft); color: var(--amber); }
   .tag.r-good { background: var(--green-soft); color: var(--green); }
@@ -109,23 +111,27 @@
 
   /* ── Controls ─────────────────────────────────────────────────────────── */
   /* A skill button copies its prompt; that is all it does. */
-  .skill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: 1px solid var(--line-2); border-radius: var(--r-control); background: transparent; color: var(--ink); font: 500 12px/1 var(--mono); cursor: pointer; white-space: nowrap; }
+  .skill { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; height: 28px; padding: 0 11px; border: 1px solid var(--line-2); border-radius: var(--r-control); background: transparent; color: var(--ink); font: 500 12px/1 var(--mono); cursor: pointer; white-space: nowrap; }
   .skill:hover { border-color: var(--ink-3); background: var(--sunk); }
   .skill.primary { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
   .skill.primary:hover { border-color: var(--accent); background: var(--accent); color: #fff; }
+  .skill .label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .skill.small { height: 24px; padding: 0 8px; border-radius: 7px; font-size: 11.5px; }
   .act { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--ink-3); cursor: pointer; }
   .act:hover { background: var(--sunk); color: var(--ink); }
 
-  /* Card tools surface on hover or focus, and stay put where there is no hover. */
-  .tools { display: flex; align-items: center; gap: 4px; opacity: 0; transition: opacity .12s; }
+  /* The hide control surfaces on hover or focus, and stays put where there is no
+     hover. It keeps its space while invisible, so nothing moves under the pointer. */
+  .tools { display: flex; align-items: center; margin-left: auto; opacity: 0; transition: opacity .12s; }
   .move:hover .tools, .move:focus-within .tools, .card:hover .tools, .card:focus-within .tools { opacity: 1; }
   @media (hover: none) { .tools { opacity: 1; } }
 
-  .kicker { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink-3); font: 500 11.5px var(--mono); }
+  .kicker { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; color: var(--ink-3); font: 500 11.5px var(--mono); }
   .kicker .key { color: var(--ink-3); white-space: nowrap; }
   .kicker .key:hover { color: var(--ink); }
   .kicker .spacer { flex: 1; }
+  .kicker .when { margin-left: auto; }
+  .kicker .when + .tools { margin-left: 4px; }
 
   /* ── Your move ────────────────────────────────────────────────────────── */
   .tray { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; margin-bottom: 44px; }
@@ -133,7 +139,7 @@
   .move::before { content: ""; position: absolute; top: 0; left: 18px; width: 28px; height: 3px; border-radius: 0 0 3px 3px; background: var(--k, var(--accent)); }
   .move.review { --k: var(--violet); }
   .move .kind { color: var(--k, var(--accent)); font-family: var(--sans); font-weight: 700; white-space: nowrap; }
-  .move h3 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.35; letter-spacing: -.015em; }
+  .move h3 { margin: 0; overflow-wrap: anywhere; font-size: 15px; font-weight: 700; line-height: 1.35; letter-spacing: -.015em; }
   .move .sub { margin-top: -6px; color: var(--ink-3); font-size: 12px; font-weight: 500; }
   .move .pr-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .move footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -141,41 +147,40 @@
   .tray-clear { display: grid; place-items: center; min-height: 92px; border: 1.5px dashed var(--line-2); border-radius: var(--r-move); color: var(--ink-3); font-weight: 600; }
 
   /* ── Pipeline ─────────────────────────────────────────────────────────── */
-  .pipeline { display: grid; grid-template-columns: repeat(6, minmax(196px, 1fr)); gap: 10px; align-items: start; margin: 0 -4px; padding: 0 4px 8px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+  /* Six stages side by side wherever they fit; narrower, they wrap into rows in
+     order (the step numbers keep the sequence), and on a phone they become a
+     strip to swipe. Nothing ever forces the page itself to scroll sideways. */
+  .pipeline { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; align-items: start; }
   .stage { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 120px; padding: 10px; border-radius: var(--r-lane); background: var(--lane); }
   .stage-head { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 2px 4px 4px; }
   .stage-head .step { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--card); box-shadow: var(--shadow-1); color: var(--ink-3); font: 500 11px var(--mono); }
   .stage-head b { font-size: 13px; font-weight: 700; }
   .stage-head .n { color: var(--ink-3); font: 500 12px var(--mono); }
-  .stage-head .spacer { flex: 1; }
-  .stage-note { padding: 2px 4px; color: var(--ink-3); font: 11px/1.5 var(--mono); }
+  .stage-note { padding: 2px 4px; overflow-wrap: anywhere; color: var(--ink-3); font: 11px/1.5 var(--mono); }
   .stage-empty { padding: 10px 4px; color: var(--ink-3); font: 11.5px/1.5 var(--mono); }
 
   .card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 11px 12px 12px; border-radius: var(--r-card); background: var(--card); box-shadow: var(--shadow-1); }
   .card:hover { box-shadow: var(--shadow-2); }
-  /* Cards are too narrow to give the tools a column, so they float over the
-     end of the kicker while the card is in hand. */
-  .card { position: relative; }
-  .card .tools { position: absolute; top: 7px; right: 8px; padding-left: 16px; background: linear-gradient(to right, transparent, var(--card) 14px); }
   .card .kicker { min-height: 24px; margin: -3px -4px -3px 0; font-size: 11px; }
-  .card h4 { display: -webkit-box; margin: 0; overflow: hidden; font-size: 12.5px; font-weight: 650; line-height: 1.38; letter-spacing: -.005em; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .card h4 { display: -webkit-box; margin: 0; overflow: hidden; overflow-wrap: anywhere; font-size: 12.5px; font-weight: 650; line-height: 1.38; letter-spacing: -.005em; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
   .card .sub { margin-top: -4px; overflow: hidden; color: var(--ink-3); font-size: 11.5px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
   .card h3 { margin: 0; font-size: 12.5px; font-weight: 650; line-height: 1.38; }
   .card .kind { color: var(--violet); font-family: var(--sans); font-weight: 700; }
   .card footer { display: flex; align-items: center; gap: 8px; }
   .card footer .diff { margin-left: auto; color: var(--ink-3); font: 500 11px var(--mono); }
   .card .tags { gap: 4px; }
-  /* Cards are narrow, so a long signal wraps rather than losing its tail. */
-  .card .tag { height: auto; min-height: 20px; padding: 2px 6px; font-size: 11px; line-height: 1.4; white-space: normal; }
+  .card .tag { min-height: 20px; padding: 2px 6px; font-size: 11px; }
   .card .pr-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
   /* Who owes the next move, and for how long — kept apart from what is wrong. */
   .wait { display: flex; align-items: center; gap: 7px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 11.5px; font-weight: 600; }
   .wait::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); }
-  .wait .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .wait .age { margin-left: auto; color: var(--ink-3); font: 500 11px var(--mono); }
+  .wait .who { min-width: 0; overflow-wrap: anywhere; }
+  .wait .age { margin-left: auto; white-space: nowrap; color: var(--ink-3); font: 500 11px var(--mono); }
   .wait.r-warn { color: var(--amber); } .wait.r-warn::before { background: var(--amber); }
   .wait.r-good::before { background: var(--green); }
   .wait + .wait { padding-top: 0; border-top: 0; }
+  .card-actions, .stage-actions { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+  .stage-actions { padding: 0 2px; }
 
   /* A stack is one piece of news, not eleven. */
   .stack { border-radius: var(--r-card); background: var(--amber-soft); }
@@ -198,16 +203,25 @@
   .drawer .card { opacity: .72; }
   .drawer .card:hover, .drawer .card:focus-within { opacity: 1; }
 
+  /* Below this a six-up card can no longer fit the longest skill name. */
+  @media (max-width: 1359px) {
+    .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+  @media (max-width: 1023px) {
+    .masthead .spacer { display: none; }
+    .today { margin-right: auto; }
+    .routines { order: 5; width: 100%; }
+  }
   @media (max-width: 760px) {
     main { padding: 18px 16px 48px; }
-    .masthead { flex-wrap: wrap; margin-bottom: 22px; }
-    .masthead .spacer { display: none; }
-    .routines { order: 5; width: 100%; overflow-x: auto; scrollbar-width: none; }
-    .today { margin-right: auto; }
+    .masthead { margin-bottom: 22px; }
     .tray { grid-template-columns: minmax(0, 1fr); }
-    .pipeline { grid-template-columns: repeat(6, 82vw); scroll-snap-type: x mandatory; }
-    .stage { scroll-snap-align: start; }
+    .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .move .tools { opacity: 1; }
+  }
+  @media (max-width: 520px) {
+    .pipeline { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 86%; margin: 0 -16px; padding: 0 16px 8px; overflow-x: auto; overscroll-behavior-x: contain; scroll-padding: 0 16px; scroll-snap-type: x mandatory; scrollbar-width: none; }
+    .stage { scroll-snap-align: start; }
   }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 </style>
@@ -401,7 +415,7 @@
   // knowing before you click.
   const actionButton = (action, variant = "", suffix = "") =>
     action
-      ? `<button type="button" class="skill ${variant}" data-copy="${esc(action.prompt)}" title="${esc(action.prompt)}" aria-label="copy prompt: ${esc(action.prompt)}">${ICON.play}${esc(action.skill)}${suffix}</button>`
+      ? `<button type="button" class="skill ${variant}" data-copy="${esc(action.prompt)}" title="${esc(action.prompt)}" aria-label="copy prompt: ${esc(action.prompt)}">${ICON.play}<span class="label">${esc(action.skill)}${suffix}</span></button>`
       : "";
   const hideButton = (action, id, state, label) =>
     `<button type="button" class="act" data-action="${action}" data-id="${esc(id)}" data-state="${esc(state)}" aria-label="${action} ${esc(label)}" title="${action}">${ICON[action]}</button>`;
@@ -485,16 +499,20 @@
       : item.prs.map((pr) => `<div class="pr-line">${link(pr.url, prLabel(pr), "num")}${problems(pr)}</div>`).join("");
     const waits = item.prs.flatMap((pr) => pr.reasons.filter(isWait)).map(waitLine).join("");
     const owner = item.section === "lead" ? `<span class="badge owner">no owner</span>` : "";
+    // Its own row, always shown: in the kicker it covered the links beside it.
+    const actions = actionsOf(item).map((a) => actionButton(a.action, "small", a.suffix)).join("");
     return `<div class="card">
-      <div class="kicker">${identity(item)}${single && (item.key ?? item.ticketKey) ? link(single.url, prLabel(single), "num") : ""}${owner}${prio(item)}<span class="spacer"></span><span class="tools">${actionsOf(item).map((a) => actionButton(a.action, "small", a.suffix)).join("")}${hideButton(action, item.id, itemState(item), item.key ?? item.summary)}</span></div>
+      <div class="kicker">${identity(item)}${single && (item.key ?? item.ticketKey) ? link(single.url, prLabel(single), "num") : ""}${owner}${prio(item)}<span class="tools">${hideButton(action, item.id, itemState(item), item.key ?? item.summary)}</span></div>
       <h4 title="${esc(item.summary)}">${link(item.url ?? single?.url, esc(item.summary))}</h4>${parentLine(item)}
-      ${body}${noPrTag(item)}${waits}</div>`;
+      ${body}${noPrTag(item)}${waits}${actions ? `<div class="card-actions">${actions}</div>` : ""}</div>`;
   };
 
   const shippingCard = (pr, action) => {
-    const title = pr.ticketKey && pr.title.startsWith(pr.ticketKey) ? pr.title.slice(pr.ticketKey.length).trim() : pr.title;
+    // The key is already in the kicker, so a title that leads with it — "PY-1 x",
+    // "PY-1: x", "[PY-1] x" — drops it along with its punctuation.
+    const title = (pr.ticketKey && pr.title.replace(new RegExp(`^\\W*${pr.ticketKey}\\W*`), "")) || pr.title;
     return `<div class="card">
-      <div class="kicker">${pr.ticketKey ? link(pr.ticketUrl, esc(pr.ticketKey), "key") : ""}${link(pr.url, prLabel(pr), "num")}<span class="spacer"></span><span>${esc(ago(Date.parse(pr.mergedAt)))}</span><span class="tools">${hideButton(action, pr.id, shippingState(), pr.title)}</span></div>
+      <div class="kicker">${pr.ticketKey ? link(pr.ticketUrl, esc(pr.ticketKey), "key") : ""}${link(pr.url, prLabel(pr), "num")}<span class="when">${esc(ago(Date.parse(pr.mergedAt)))}</span><span class="tools">${hideButton(action, pr.id, shippingState(), pr.title)}</span></div>
       <h4 title="${esc(pr.title)}">${link(pr.url, esc(title))}</h4>
       <div class="tags">${tag("merged", "r-good")}${tag(`after ${pr.tag}`)}</div></div>`;
   };
@@ -528,7 +546,7 @@
   };
 
   const stageColumn = (index, label, count, cards, extra = "") =>
-    `<section class="stage" aria-label="${esc(label)}"><div class="stage-head"><span class="step">${index + 1}</span><b>${esc(label)}</b><span class="n">${count}</span><span class="spacer"></span>${extra.head ?? ""}</div>${cards}${extra.foot ?? ""}</section>`;
+    `<section class="stage" aria-label="${esc(label)}"><div class="stage-head"><span class="step">${index + 1}</span><b>${esc(label)}</b><span class="n">${count}</span></div>${cards}${extra.foot ?? ""}</section>`;
 
   const drawer = (label, cards, count) =>
     count ? `<details class="drawer"><summary>${esc(label)} <span class="n">${count}</span></summary><div class="cards">${cards}</div></details>` : "";
@@ -556,6 +574,7 @@
     const mine = placed("tray");
     const moves = [...mine.map((item) => moveCard(item, "hide")), ...visibleReviews.map((pr) => reviewCard(pr, "hide"))];
     document.getElementById("move-count").textContent = moves.length;
+    document.getElementById("move-count").classList.toggle("zero", moves.length === 0);
     document.getElementById("tray").innerHTML = moves.length ? moves.join("") : `<div class="tray-clear">All clear</div>`;
 
     const flowing = placed("pipeline");
@@ -575,8 +594,8 @@
       ? visibleShipping.map((pr) => shippingCard(pr, "hide")).join("")
       : data.shipping?.error ? `<div class="stage-empty">${esc(data.shipping.error)}</div>` : "";
     columns.push(stageColumn(STAGES.length, "Unreleased", visibleShipping.length, shippingCards, {
-      head: visibleShipping.length > 0 ? actionButton(data.shipping?.action, "small") : "",
-      foot: shippingFoot,
+      // Under the cards rather than in the head, which has no room for it.
+      foot: (visibleShipping.length > 0 && data.shipping?.action ? `<div class="stage-actions">${actionButton(data.shipping.action, "small")}</div>` : "") + shippingFoot,
     }));
     document.getElementById("pipeline").innerHTML = columns.join("");
 
