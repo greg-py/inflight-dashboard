@@ -1,210 +1,201 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLedger, classifyTicket, jiraStage, prStage } from "../lib/ledger.js";
+import { buildLedger, classifyTicket, classifyPodTicket, jiraStage, prStage, businessDaysSince } from "../lib/ledger.js";
 import { normalizePr, ciState } from "../lib/github.js";
 
 const NOW = new Date("2026-11-04T15:00:00Z");
-const me = { login: "greg-py", accountId: "me" };
+const ME = "greg-py";
 const daysAgo = (d) => new Date(NOW - d * 86_400_000).toISOString();
+const approved = [{ login: "aroffe-py", at: daysAgo(1) }];
+const qaPassed = { login: "mkennedypy22", at: daysAgo(0.5) };
 
-const ticket = (o) => ({
+const ticket = (o = {}) => ({
   key: "PY-1", url: "https://jira/PY-1", summary: "Thing", type: "Story", isSubtask: false,
-  status: "In Code Review", category: "indeterminate", statusSince: daysAgo(3), created: daysAgo(10),
-  assignee: { id: "me", name: "Greg King" }, mine: true, parent: null, subtasks: [], inSprint: true,
-  points: 3, qaLead: null, notesEmpty: false, ...o,
+  status: "In Code Review", category: "indeterminate", created: daysAgo(10), statusSince: daysAgo(3),
+  assignee: "Greg King", mine: true, parent: null, subtasks: [], inSprint: true,
+  points: 3, qaLead: null, groomed: true, ...o,
 });
-const pr = (o) => ({
+const pr = (o = {}) => ({
   number: 100, repo: "PerformYard/PerformYard", defaultBranch: "master", url: "https://gh/100", title: "PY-1: Thing",
-  author: "greg-py", isDraft: false, state: "OPEN", base: "master", head: "py-1", keys: ["PY-1"],
+  author: ME, isDraft: false, state: "OPEN", base: "master", head: "py-1", keys: ["PY-1"],
   mergeable: "MERGEABLE", createdAt: daysAgo(5), mergedAt: null, pushedAt: daysAgo(4), readyAt: null,
   requestedAt: daysAgo(4), requested: [], reviewedBy: [], engApprovals: [], qaApproval: null,
-  changesRequested: [], unanswered: 0, ci: { state: "success", failing: [] }, myLastReview: null, parent: null, ...o,
+  changesRequested: [], unanswered: 0, ci: { state: "success", failing: [] }, myReview: null, parent: null, ...o,
 });
-const ctx = (tickets = [], prs = []) => ({
-  me, now: NOW,
-  ticketsByKey: new Map(tickets.map((t) => [t.key, t])),
-  prsByNumber: new Map(prs.map((p) => [p.number, p])),
-});
-const classify = (t, prs, extra = []) => classifyTicket(t, prs, ctx([t, ...extra], prs));
-const approved = [{ login: "aroffe-py", at: daysAgo(1) }];
+const ctx = (tickets = []) => ({ me: ME, now: NOW, tickets: new Map(tickets.map((t) => [t.key, t])) });
+const classify = (t, prs, others = []) => classifyTicket(t, prs, ctx([t, ...others]));
+const ledger = (o) => buildLedger({ me: ME, tickets: [], podTickets: [], myPrs: [], otherPrs: [], release: null, now: NOW, ...o });
 
-test("engineering approval on a ticket in code review is your move: move it to Ready To Test", () => {
+test("engineering approval on a ticket in code review: move it to Ready To Test", () => {
   const r = classify(ticket(), [pr({ engApprovals: approved })]);
-  assert.equal(r.group, "yours");
-  assert.equal(r.next.label, "Move to Ready To Test");
-  assert.equal(r.j, 2);
-  assert.equal(r.g, 3);
-});
-
-test("an approval still means move to Ready To Test with CI running, bot threads, follow-ups or a stack", () => {
-  const p = pr({ engApprovals: approved, ci: { state: "pending", failing: [] }, base: "py-0", parent: { number: 99, author: "greg-py", keys: ["PY-0"] } });
-  const r = classify(ticket(), [p]);
+  assert.equal(r.lane, "mine");
   assert.equal(r.next.label, "Move to Ready To Test");
 });
 
-test("an approval still moves the ticket when CI is red, because the drift comes first", () => {
-  const r = classify(ticket(), [pr({ engApprovals: approved, ci: { state: "failure", failing: ["Prettier"] } })]);
-  assert.equal(r.next.label, "Move to Ready To Test");
-  assert.ok(r.prs[0].chips.some((c) => c.text.startsWith("CI failing")));
+test("the move to Ready To Test is not hidden by running or red CI, bot threads or a stack", () => {
+  for (const extra of [{ ci: { state: "pending", failing: [] } }, { ci: { state: "failure", failing: ["Prettier"] } }, { parent: { number: 99, author: ME, keys: ["PY-0"] } }]) {
+    assert.equal(classify(ticket(), [pr({ engApprovals: approved, ...extra })]).next.label, "Move to Ready To Test");
+  }
 });
 
 test("QA's approval is not an engineering approval", () => {
   const raw = (reviews) => ({
     number: 1, title: "PY-1: x", url: "u", isDraft: false, state: "OPEN", createdAt: daysAgo(3), mergedAt: null,
-    mergeable: "MERGEABLE", baseRefName: "master", headRefName: "py-1", author: { login: "greg-py" },
+    mergeable: "MERGEABLE", baseRefName: "master", headRefName: "py-1", author: { login: ME },
     repository: { nameWithOwner: "PerformYard/PerformYard", defaultBranchRef: { name: "master" } },
     reviewRequests: { nodes: [] }, reviews: { nodes: reviews }, timelineItems: { nodes: [] },
     head: { nodes: [{ commit: { committedDate: daysAgo(3), checkSuites: { nodes: [{ createdAt: daysAgo(3) }] } } }] },
   });
-  const teams = { eng: new Set(["aroffe-py", "doug-py", "greg-py"]), qa: new Set(["mkennedypy22", "doug-py"]), login: "greg-py" };
+  const teams = { eng: new Set(["aroffe-py", "doug-py", ME]), qa: new Set(["mkennedypy22", "doug-py"]), login: ME };
   const review = (login, state, body = "") => ({ author: { __typename: "User", login }, state, submittedAt: daysAgo(1), body });
 
   const qa = normalizePr(raw([review("mkennedypy22", "APPROVED", "QA:APPROVED")]), teams);
-  assert.equal(qa.engApprovals.length, 0);
-  assert.equal(qa.qaApproval.login, "mkennedypy22");
+  assert.deepEqual([qa.engApprovals.length, qa.qaApproval.login], [0, "mkennedypy22"]);
 
   const doug = normalizePr(raw([review("doug-py", "APPROVED", "Looks good")]), teams);
-  assert.deepEqual(doug.engApprovals.map((a) => a.login), ["doug-py"]);
-  assert.equal(doug.qaApproval, null);
+  assert.deepEqual([doug.engApprovals.map((a) => a.login), doug.qaApproval], [["doug-py"], null]);
 
   const dougKoala = normalizePr(raw([review("doug-py", "APPROVED", "🐨")]), teams);
-  assert.equal(dougKoala.engApprovals.length, 0);
-  assert.equal(dougKoala.qaApproval.login, "doug-py");
+  assert.deepEqual([dougKoala.engApprovals.length, dougKoala.qaApproval.login], [0, "doug-py"]);
+
+  const qaComment = normalizePr(raw([review("tradu1097", "COMMENTED", "how do I test this?")]), { ...teams, qa: new Set(["tradu1097"]) });
+  assert.equal(qaComment.qaApproval, null);
 
   const bot = normalizePr(raw([review("chatgpt-codex-connector", "COMMENTED", "P1")]), teams);
   assert.deepEqual(bot.reviewedBy, []);
 });
 
-test("a QA-only approval leaves the ticket in review, waiting on engineers", () => {
-  const r = classify(ticket(), [pr({ qaApproval: { login: "mkennedypy22", at: daysAgo(1) }, requested: ["aroffe-py"], requestedAt: daysAgo(0.5) })]);
+test("a QA-only approval leaves the ticket waiting on engineers", () => {
+  const r = classify(ticket(), [pr({ qaApproval: qaPassed, requested: ["aroffe-py"], requestedAt: daysAgo(0.5) })]);
   assert.notEqual(r.next?.label, "Move to Ready To Test");
 });
 
-test("an open Bug Sub-task from QA holds the parent in testing, and the fix is yours on the bug", () => {
+test("an open Bug Sub-task from QA is your move, and its parent waits on it", () => {
   const bug = ticket({ key: "PY-2", type: "Bug Sub-task", isSubtask: true, status: "TO DO", category: "new", parent: "PY-1", created: daysAgo(0.1) });
-  const parent = ticket({ status: "In Testing", subtasks: [{ key: "PY-2" }] });
+  const parent = ticket({ status: "In Testing", subtasks: ["PY-2"] });
   const p = pr({ engApprovals: approved });
-  const rows = buildLedger({ me, tickets: [parent, bug], podTickets: [], myPrs: [p], allPrs: [p], release: null, now: NOW });
+  const rows = ledger({ tickets: [parent, bug], myPrs: [p] });
   const fix = rows.find((r) => r.key === "PY-2");
   const held = rows.find((r) => r.key === "PY-1");
-  assert.equal(fix.yours, true);
-  assert.equal(fix.next.label, "Fix");
-  assert.equal(held.yours, false);
-  assert.equal(held.ball, "PY-2");
+  assert.deepEqual([fix.lane, fix.next.label], ["mine", "Fix"]);
+  assert.deepEqual([held.lane, held.waitingOn], ["waiting", "PY-2"]);
 });
 
-test("a QA-passed PR stacked on someone else's open PR waits on that PR", () => {
-  const parentPr = pr({ number: 7865, author: "aboulle-py", keys: ["PY-9"], head: "andy" });
-  const child = pr({ number: 7920, base: "andy", parent: { number: 7865, author: "aboulle-py", keys: ["PY-9"] }, engApprovals: approved, qaApproval: { login: "mkennedypy22", at: daysAgo(0.5) } });
-  const r = classifyTicket(ticket({ status: "In Testing" }), [child], ctx([], [parentPr, child]));
-  assert.equal(r.yours, false);
-  assert.equal(r.ball, "@aboulle-py");
-});
-
-test("a PR open for review while the ticket is still In Progress is yours to move", () => {
-  const r = classify(ticket({ status: "In Progress" }), [pr({ requested: ["jnguyencd"] })]);
-  assert.equal(r.next.label, "Move to In Code Review");
-});
-
-test("routine sub-tasks fold into their parent; ones with their own action keep a row", () => {
-  const parent = ticket({ key: "PY-10", status: "In Progress" });
-  const sub = (key, status, o = {}) => ticket({ key, status, isSubtask: true, parent: "PY-10", category: status === "TO DO" ? "new" : "indeterminate", ...o });
-  const subs = [sub("PY-11", "In Progress"), sub("PY-12", "In Progress"), sub("PY-13", "TO DO"), sub("PY-14", "In Progress", { summary: "has a PR" })];
-  const p = pr({ number: 14, keys: ["PY-14"], requested: ["x"] });
-  const rows = buildLedger({ me, tickets: [parent, ...subs], podTickets: [], myPrs: [p], allPrs: [p], release: null, now: NOW });
-  assert.deepEqual(rows.map((r) => r.key).sort(), ["PY-10", "PY-14"]);
-  const top = rows.find((r) => r.key === "PY-10");
-  assert.deepEqual(top.children.sort(), ["PY-11", "PY-12", "PY-13"]);
-  assert.ok(top.chips.some((c) => c.text === "+3 sub-tasks · 2 in progress · 1 to do"));
-});
-
-test("READY TO MERGE with a draft, conflicting PR is drift you reconcile", () => {
+test("READY TO MERGE with a draft, conflicting PR: resolve the conflicts", () => {
   const r = classify(ticket({ status: "READY TO MERGE" }), [pr({ isDraft: true, mergeable: "CONFLICTING" })]);
-  assert.equal(r.ball, "You · drift");
-  assert.equal(r.g, 1);
   assert.equal(r.next.skill, "resolve-conflicts");
 });
 
 test("a review request waits on the reviewer, then becomes a nudge after two business days", () => {
   const fresh = classify(ticket(), [pr({ requested: ["jnguyencd"], requestedAt: "2026-11-04T09:00:00Z" })]);
-  assert.equal(fresh.group, "waiting");
-  assert.equal(fresh.ball, "@jnguyencd");
+  assert.deepEqual([fresh.lane, fresh.waitingOn], ["waiting", "@jnguyencd"]);
   const stale = classify(ticket(), [pr({ requested: ["jnguyencd"], requestedAt: "2026-10-30T14:00:00Z" })]);
-  assert.equal(stale.group, "yours");
-  assert.match(stale.next.label, /^Nudge @jnguyencd/);
+  assert.equal(stale.next.label, "Nudge @jnguyencd");
+});
+
+test("with two PRs in review, the nudge is for the one not yet approved", () => {
+  const done = pr({ number: 1, engApprovals: approved, requested: ["a"], requestedAt: daysAgo(9) });
+  const open = pr({ number: 2, requested: ["b"], requestedAt: daysAgo(9) });
+  assert.equal(classify(ticket(), [done, open]).next.label, "Nudge @b");
 });
 
 test("a reviewer who commented and was not asked again needs a re-request", () => {
-  const r = classify(ticket(), [pr({ reviewedBy: ["marcuswithers-py"] })]);
-  assert.equal(r.next.label, "Re-request @marcuswithers-py");
+  assert.equal(classify(ticket(), [pr({ reviewedBy: ["marcuswithers-py"] })]).next.label, "Re-request @marcuswithers-py");
 });
 
-test("nobody requested is yours", () => {
-  const r = classify(ticket(), [pr()]);
-  assert.equal(r.next.label, "Request review");
+test("nobody requested: request review", () => {
+  assert.equal(classify(ticket(), [pr()]).next.label, "Request review");
 });
 
-test("Ready To Test with an approved PR is QA's", () => {
-  const r = classify(ticket({ status: "Ready To Test" }), [pr({ engApprovals: approved })]);
-  assert.equal(r.group, "waiting");
-  assert.equal(r.ball, "QA");
+test("in code review with only a draft: mark it ready", () => {
+  assert.equal(classify(ticket(), [pr({ isDraft: true })]).next.label, "Mark #100 ready");
 });
 
-test("In Testing names the QA lead", () => {
-  const r = classify(ticket({ status: "In Testing", qaLead: "Mark Kennedy" }), [pr({ engApprovals: approved })]);
-  assert.equal(r.ball, "Mark");
+test("a PR open for review while the ticket is still In Progress: move the ticket", () => {
+  assert.equal(classify(ticket({ status: "In Progress" }), [pr({ requested: ["x"] })]).next.label, "Move to In Code Review");
 });
 
-test("QA's approval on GitHub while Jira still says testing is yours to merge", () => {
-  const r = classify(ticket({ status: "In Testing" }), [pr({ engApprovals: approved, qaApproval: { login: "tradu1097", at: daysAgo(0.2) } })]);
-  assert.equal(r.next.label, "Merge #100");
+test("Ready To Test with an approved PR is QA's; In Testing names the QA lead", () => {
+  assert.equal(classify(ticket({ status: "Ready To Test" }), [pr({ engApprovals: approved })]).waitingOn, "QA");
+  assert.equal(classify(ticket({ status: "In Testing", qaLead: "Mark Kennedy" }), [pr({ engApprovals: approved })]).waitingOn, "Mark");
 });
 
-test("merged but not Done is yours to close out", () => {
-  const r = classify(ticket({ status: "In Testing" }), [pr({ state: "MERGED", mergedAt: daysAgo(0.5) })]);
-  assert.equal(r.next.label, "Set Done");
+test("QA passed on GitHub while Jira still says testing: merge", () => {
+  assert.equal(classify(ticket({ status: "In Testing" }), [pr({ engApprovals: approved, qaApproval: qaPassed })]).next.label, "Merge #100");
 });
 
-test("READY TO MERGE stacked on a parent still in testing waits on the parent", () => {
-  const parent = ticket({ key: "PY-0", status: "In Testing" });
-  const parentPr = pr({ number: 99, keys: ["PY-0"], head: "py-0", engApprovals: approved });
-  const child = pr({ base: "py-0", parent: { number: 99, author: "greg-py", keys: ["PY-0"] }, engApprovals: approved, qaApproval: { login: "tradu1097", at: daysAgo(0.1) } });
-  const r = classifyTicket(ticket({ status: "READY TO MERGE" }), [child], ctx([parent], [parentPr, child]));
-  assert.equal(r.group, "waiting");
-  assert.equal(r.ball, "#99");
+test("READY TO MERGE and clean: merge; with CI running: wait on CI", () => {
+  assert.equal(classify(ticket({ status: "READY TO MERGE" }), [pr({ engApprovals: approved, qaApproval: qaPassed })]).next.label, "Merge #100");
+  assert.equal(classify(ticket({ status: "READY TO MERGE" }), [pr({ engApprovals: approved, ci: { state: "pending", failing: [] } })]).waitingOn, "CI");
 });
 
-test("READY TO MERGE and clean is yours to merge", () => {
-  const r = classify(ticket({ status: "READY TO MERGE" }), [pr({ engApprovals: approved, qaApproval: { login: "tradu1097", at: daysAgo(0.1) } })]);
-  assert.equal(r.next.label, "Merge #100");
+test("merged but not Done: set Done", () => {
+  assert.equal(classify(ticket({ status: "In Testing" }), [pr({ state: "MERGED", mergedAt: daysAgo(0.5) })]).next.label, "Set Done");
+});
+
+test("a stacked PR waits on its parent: someone else's, or your own not yet at Merge", () => {
+  const onAndy = pr({ base: "andy", parent: { number: 7865, author: "aboulle-py", keys: ["PY-9"] }, engApprovals: approved, qaApproval: qaPassed });
+  assert.equal(classify(ticket({ status: "In Testing" }), [onAndy]).waitingOn, "@aboulle-py");
+
+  const below = ticket({ key: "PY-0", status: "In Testing" });
+  const onMine = pr({ base: "py-0", parent: { number: 99, author: ME, keys: ["PY-0"] }, engApprovals: approved, qaApproval: qaPassed });
+  assert.equal(classify(ticket({ status: "READY TO MERGE" }), [onMine], [below]).waitingOn, "#99");
+  assert.equal(classify(ticket({ status: "READY TO MERGE" }), [onMine], [{ ...below, status: "READY TO MERGE" }]).next.label, "Merge stack from #100");
 });
 
 test("held work goes to the shelf whatever else is true", () => {
-  const r = classify(ticket({ summary: "(HOLD MERGE) Remove nav" }), [pr({ engApprovals: approved })]);
-  assert.equal(r.group, "shelf");
+  assert.equal(classify(ticket({ summary: "(HOLD MERGE) Remove nav" }), [pr({ engApprovals: approved })]).lane, "shelf");
 });
 
-test("pod tickets show only when something is stuck", () => {
-  const podTicket = (o) => ticket({ mine: false, assignee: { id: "x", name: "James Nguyen" }, ...o });
-  const quiet = podTicket({ key: "PY-7" });
-  const unowned = podTicket({ key: "PY-8", assignee: null, status: "TO DO", category: "new" });
-  const drift = podTicket({ key: "PY-9", status: "In Progress" });
-  const prs = [pr({ number: 9, author: "jnguyencd", keys: ["PY-9"], engApprovals: approved }), pr({ number: 7, author: "jnguyencd", keys: ["PY-7"], requested: ["x"] })];
-  const rows = buildLedger({ me, tickets: [], podTickets: [quiet, unowned, drift], myPrs: [], allPrs: prs, release: null, now: NOW });
-  assert.deepEqual(rows.map((r) => [r.key, r.next.label]).sort(), [["PY-8", "Assign"], ["PY-9", "Ready To Test?"]]);
+test("routine sub-tasks fold into their parent; ones with their own action keep a row", () => {
+  const sub = (key, status, o = {}) => ticket({ key, status, isSubtask: true, parent: "PY-10", category: status === "TO DO" ? "new" : "indeterminate", ...o });
+  const tickets = [ticket({ key: "PY-10", status: "In Progress" }), sub("PY-11", "In Progress"), sub("PY-12", "In Progress"), sub("PY-13", "TO DO"), sub("PY-14", "In Progress")];
+  const rows = ledger({ tickets, myPrs: [pr({ number: 14, keys: ["PY-14"], requested: ["x"] })] });
+  assert.deepEqual(rows.map((r) => r.key).sort(), ["PY-10", "PY-14"]);
+  assert.ok(rows.find((r) => r.key === "PY-10").chips.some((c) => c.text === "+3 sub-tasks · 2 in progress · 1 to do"));
 });
 
-test("a review someone asked of you is yours", () => {
-  const p = pr({ number: 5, author: "aroffe-py", keys: ["PY-5"], requested: ["greg-py"] });
-  const rows = buildLedger({ me, tickets: [], podTickets: [], myPrs: [], allPrs: [p], release: null, now: NOW });
-  assert.equal(rows[0].group, "reviews");
-  assert.equal(rows[0].next.skill, "deep-review");
+test("pod tickets show only when something is stuck, and say what", () => {
+  const pod = (o) => ticket({ mine: false, assignee: "James Nguyen", ...o });
+  assert.equal(classifyPodTicket(pod({ key: "PY-7" }), [pr({ author: "jnguyencd", keys: ["PY-7"], requested: ["x"] })], ctx()), null);
+  assert.equal(classifyPodTicket(pod({ key: "PY-8", assignee: null, status: "TO DO", category: "new" }), [], ctx()).next.label, "Assign");
+  const stuck = classifyPodTicket(pod({ key: "PY-9", status: "In Progress" }), [pr({ author: "jnguyencd", keys: ["PY-9"], engApprovals: approved })], ctx());
+  assert.deepEqual([stuck.lane, stuck.waitingOn, stuck.chips[0].text], ["waiting", "James", "approved, still In Progress"]);
+  assert.equal(classifyPodTicket(pod({ key: "PY-6" }), [pr({ author: "mw", keys: ["PY-6"] })], ctx()).next.label, "Find reviewer");
 });
 
-test("merged since the last tag is yours to ship", () => {
-  const release = { unreleased: [{ number: 7825, title: "PY-14976: MCP tools (#7825)", url: "u", author: "greg-py", keys: ["PY-14976"], mergedAt: daysAgo(1) }, { number: 7939, title: "PY-15237 x", url: "u", author: "aboulle-py", keys: ["PY-15237"], mergedAt: daysAgo(1) }] };
-  const rows = buildLedger({ me, tickets: [], podTickets: [], myPrs: [], allPrs: [], release, now: NOW });
-  assert.deepEqual(rows.map((r) => [r.key, r.group]), [["PY-14976", "ship"]]);
+test("a review someone asked of you, or one you asked changes on that has moved", () => {
+  const asked = pr({ number: 5, author: "aroffe-py", keys: ["PY-5"], requested: [ME] });
+  const moved = pr({ number: 6, author: "aroffe-py", keys: ["PY-6"], myReview: { state: "CHANGES_REQUESTED", at: daysAgo(5) }, pushedAt: daysAgo(1) });
+  const quiet = pr({ number: 7, author: "aroffe-py", keys: ["PY-7"] });
+  const rows = ledger({ otherPrs: [asked, moved, quiet] });
+  assert.deepEqual(rows.map((r) => r.next.skill), ["deep-review", "verify-review"]);
+});
+
+test("anything merged since the latest tag is one release, naming your merges", () => {
+  const release = { tag: "v2026.11.03", aheadBy: 2, unreleased: [
+    { number: 7825, title: "PY-14976: MCP tools", url: "u", author: ME, keys: ["PY-14976"], mergedAt: daysAgo(1) },
+    { number: 7939, title: "PY-15237 x", url: "u", author: "aboulle-py", keys: ["PY-15237"], mergedAt: daysAgo(2) },
+  ] };
+  const [row] = ledger({ release });
+  assert.deepEqual([row.next.skill, row.title, row.chips[0].text], ["production-release", "2 merged since v2026.11.03", "yours: PY-14976"]);
+  assert.equal(ledger({ release: { ...release, aheadBy: 0, unreleased: [] } }).length, 0);
+});
+
+test("your moves come first by urgency; waiting rows group by heading, closest to shipping first", () => {
+  const tickets = [
+    ticket({ key: "PY-1", status: "Ready To Test" }),
+    ticket({ key: "PY-2", status: "In Testing" }),
+    ticket({ key: "PY-3", status: "TO DO", category: "new" }),
+    ticket({ key: "PY-4", status: "Ready To Test" }),
+  ];
+  const myPrs = ["PY-1", "PY-2", "PY-4"].map((k, i) => pr({ number: i, keys: [k], engApprovals: approved }));
+  assert.deepEqual(ledger({ tickets, myPrs }).map((r) => [r.key, r.lane, r.heading]), [
+    ["PY-3", "mine", "TO DO"],
+    ["PY-2", "waiting", "In Testing"],
+    ["PY-1", "waiting", "Ready To Test"],
+    ["PY-4", "waiting", "Ready To Test"],
+  ]);
 });
 
 test("CI ignores QA gates, and the newest run of a check decides it", () => {
@@ -214,16 +205,11 @@ test("CI ignores QA gates, and the newest run of a check decides it", () => {
   assert.equal(ciState([run("Tests", "CANCELLED", "1")]).state, "cancelled");
 });
 
-test("stages", () => {
+test("stages and business days", () => {
   assert.equal(jiraStage({ status: "READY", category: "new" }), 0);
   assert.equal(jiraStage({ status: "Something New", category: "indeterminate" }), 1);
+  assert.equal(jiraStage({ status: "Closed", category: "done" }), 6);
   assert.equal(prStage(pr({ isDraft: true, engApprovals: approved })), 1);
-});
-
-test("an engineering approval agrees with Jira anywhere from QA queue to Merge", () => {
-  for (const status of ["Ready To Test", "In Testing", "READY TO MERGE"]) {
-    const r = classify(ticket({ status }), [pr({ engApprovals: approved })]);
-    assert.equal(r.g, null, status);
-  }
-  assert.equal(classify(ticket({ status: "In Progress" }), [pr({ engApprovals: approved })]).g, 3);
+  assert.equal(businessDaysSince("2026-10-30T14:00:00Z", NOW), 3);
+  assert.equal(businessDaysSince("2026-11-04T09:00:00Z", NOW), 0);
 });

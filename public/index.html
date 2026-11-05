@@ -72,8 +72,6 @@
 </div>
 <div id="toaster" class="toaster"></div>
 <script>
-// Waiting rows group under these headings, closest to shipping first.
-const STATUS_ORDER = ["READY TO MERGE", "In Testing", "Ready To Test", "In Code Review", "In Design Review", "In Progress", "TO DO"];
 const store = {
   get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
@@ -123,7 +121,7 @@ const waitingItem = (r) => {
   const f = facts(r);
   return `<article class="item" data-size="xs" role="listitem">
     <section><h3>${ext(r.url, esc(r.key), "key")}${esc(r.title)}${f ? ` <span class="facts">· ${f}</span>` : ""}</h3></section>
-    <aside>${r.ball ? badge(r.ball) : ""}<span class="age">${age(r.ageMs)}</span></aside>
+    <aside>${r.waitingOn ? badge(r.waitingOn) : ""}<span class="age">${age(r.ageMs)}</span></aside>
   </article>`;
 };
 
@@ -135,15 +133,21 @@ const fold = (id, label, items) => items.length === 0 ? "" : `
     <section>${list(items)}</section>
   </details>`;
 
-const groupOf = (r) => r.group === "pod" ? "Pod" : r.group === "loose" ? "Other PRs" : r.status || "Other";
-const rank = (g) => { const i = STATUS_ORDER.findIndex((s) => s.toLowerCase() === g.toLowerCase()); return i === -1 ? 50 : i; };
+// Rows arrive sorted, so each heading's rows are already together.
+const byHeading = (rows) => {
+  const groups = [];
+  for (const r of rows) {
+    if (groups.at(-1)?.[0] !== r.heading) groups.push([r.heading, []]);
+    groups.at(-1)[1].push(r);
+  }
+  return groups;
+};
 
 const render = () => {
-  const rows = data.rows;
-  const parked = (r) => r.group === "shelf" || r.group === "later";
-  const mine = rows.filter((r) => r.yours && r.next && !parked(r));
-  const waiting = rows.filter((r) => !parked(r) && !mine.includes(r));
-  const ctx = data.context && !data.context.error ? data.context : null;
+  const lane = (name) => data.rows.filter((r) => r.lane === name);
+  const mine = lane("mine");
+  const waiting = lane("waiting");
+  const ctx = data.context;
   const rel = data.release;
 
   let left = `<h2 class="heading">Your move ${badge(String(mine.length), "primary")}</h2>${list(mine.map(actionItem))}`;
@@ -160,30 +164,24 @@ const render = () => {
       <section><h3><span class="key">${esc(new Date(e.start).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }))}</span>${esc(e.title)}</h3></section>
       <aside>${e.prep ? `<button class="btn mono" data-variant="outline" data-size="sm" type="button" data-copy="/${esc(e.prep)}">/${esc(e.prep)}</button>` : ""}</aside></article>`)) + `<div style="height:16px"></div>`;
   }
-  const groups = new Map();
-  for (const r of waiting) {
-    const g = groupOf(r);
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(r);
-  }
   right += `<h2 class="heading">Waiting on others ${badge(String(waiting.length))}</h2>`;
-  for (const [g, rs] of [...groups].sort((a, b) => rank(a[0]) - rank(b[0]))) {
-    right += `<h3 class="sub">${esc(g)}</h3>${list(rs.map(waitingItem))}`;
+  for (const [heading, rs] of byHeading(waiting)) {
+    right += `<h3 class="sub">${esc(heading)}</h3>${list(rs.map(waitingItem))}`;
   }
   const unreleased = (rel?.unreleased ?? []).map((u) => `<article class="item" data-size="xs" role="listitem">
     <section><h3>${u.number ? ext(u.url, `#${u.number}`, "key") : ""}${esc(u.title)}</h3></section>
     <aside>${badge(u.author)}<span class="age">${age(Date.now() - new Date(u.mergedAt))}</span></aside></article>`);
   const folds = [
     fold("unreleased", `Unreleased since ${rel?.tag ?? ""}`, unreleased),
-    fold("shelf", "Shelf", rows.filter((r) => r.group === "shelf").map(waitingItem)),
-    fold("later", "Later", rows.filter((r) => r.group === "later").map(waitingItem)),
+    fold("shelf", "Shelf", lane("shelf").map(waitingItem)),
+    fold("later", "Later", lane("later").map(waitingItem)),
   ].join("");
   if (folds.trim()) right += `<section class="accordion" data-multiple style="margin-top:16px">${folds}</section>`;
   document.getElementById("right").innerHTML = right;
 
   const meta = [];
   if (rel) meta.push(badge(`${rel.tag} · ${rel.aheadBy ? `master +${rel.aheadBy}` : "master even"}`, "outline"));
-  if (rel?.inFlight) meta.push(badge(`${rel.inFlight.version} next: ${rel.inFlight.nextGate ?? rel.inFlight.status}`, "outline"));
+  if (rel?.inFlight) meta.push(badge(`${rel.inFlight.version} next: ${rel.inFlight.next}`, "outline"));
   if (data.sprint) meta.push(badge(`${data.sprint.name} · ${data.sprint.done}/${data.sprint.total} pts`, "outline"));
   meta.push(`<span class="age" title="Last refreshed">${age(Date.now() - new Date(data.fetchedAt))}</span>`);
   document.getElementById("meta").innerHTML = meta.join("");
@@ -225,8 +223,7 @@ const load = async (fresh = false) => {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error);
     data = body;
-    const errs = (data.errors ?? []).concat(data.context?.error ? [data.context.error] : []);
-    document.getElementById("errors").innerHTML = errs.map((m) => `<div class="alert" data-variant="destructive"><h2>${esc(m)}</h2></div>`).join("");
+    document.getElementById("errors").innerHTML = data.errors.map((m) => `<div class="alert" data-variant="destructive"><h2>${esc(m)}</h2></div>`).join("");
     render();
   } catch (err) {
     document.getElementById("errors").innerHTML = `<div class="alert" data-variant="destructive"><h2>${esc(err.message)}</h2></div>`;

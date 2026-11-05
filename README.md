@@ -38,7 +38,6 @@ Markdown for agents: `https://basecoatui.com/components/<name>.md`.
 | QA queue | Ready To Test | QA | the PR still lacks an engineering review |
 | Testing | In Testing | QA lead | a Bug Sub-task of yours is open on it |
 | Merge | READY TO MERGE | you | always, unless stacked on a parent not yet at Merge |
-| Ship | Done, merged after the latest tag | you | until the next release |
 
 **Engineering approval** is the latest APPROVED review from a member of the
 `engineering` team whose body carries no QA marker (`QA:OK`, `QA:APPROVED`,
@@ -65,7 +64,8 @@ parent's line as a count by status.
 
 - **Reviews** — PRs requesting your review, and ones you asked changes on that have moved, are your move.
 - **Pod** — Street Sharks tickets in the open sprint with no assignee are yours to assign; approved-but-not-moved, READY TO MERGE for a day, or no reviewer list under Waiting, named for their owner.
-- **Release** — your merges since the latest tag are yours to release; everyone's fold under Unreleased.
+- **Release** — you run releases, so anything merged since the latest tag is one Release move, naming which merges are yours; the commits fold under Unreleased.
+- **Grooming** — tickets you lead whose Engineering tab is empty, updated in the last 60 days.
 - **Shelf** — held work and drafts idle for 14 days.
 
 ## Slack, meetings and calendar
@@ -81,4 +81,15 @@ These have no local credentials. Anything that writes
 }
 ```
 
-The rules live in `lib/ledger.js` and are pinned by `test/ledger.test.js`.
+## Code
+
+- `lib/jira.js`, `lib/github.js`, `lib/local.js` fetch and normalize each source.
+- `lib/ledger.js` turns tickets and PRs into rows, one owner each. It is pure,
+  and `test/ledger.test.js` pins every rule.
+- `lib/board.js` puts the sources and the ledger together into the page's data.
+- `server.js` serves the page and the board, answering from a warm cache.
+- `lib/config.js` holds every PerformYard-specific value.
+
+Each row the page receives is `{ key, title, url, status, lane, heading,
+waitingOn, next, prs, chips, ageMs }`: `lane` is `mine`, `waiting`, `shelf` or
+`later`; `next` is a skill to copy or a page to open.
