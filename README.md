@@ -17,6 +17,17 @@ npm test
 `.env` needs `JIRA_EMAIL` and `JIRA_API_TOKEN`. GitHub uses `gh auth token`
 unless `GITHUB_TOKEN` is set. No dependencies.
 
+## UI
+
+The page is plain HTML on [Basecoat](https://basecoatui.com) — shadcn/ui's
+components as HTML classes, with no framework and no build step. Its
+stylesheet and script load from jsDelivr, pinned to `basecoat-css@1.1.0` with
+integrity hashes; bump both together. Rows are Basecoat `item`s, counts and
+owners `badge`s, actions `btn`s, the folds an `accordion`, and copies a
+`toast`. Every color is a Basecoat token, so light and dark follow the system
+until the moon button picks one. Each component's docs are available as
+Markdown for agents: `https://basecoatui.com/components/<name>.md`.
+
 ## Whose move
 
 | Stage | Jira | Ball | Your move when |

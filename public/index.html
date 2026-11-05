@@ -4,77 +4,73 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Inflight</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  // Basecoat's theme: a stored choice wins, otherwise follow the system. Runs
+  // before the stylesheet so the page never flashes the wrong theme.
+  (() => {
+    try {
+      const stored = localStorage.getItem("themeMode");
+      if (stored ? stored === "dark" : matchMedia("(prefers-color-scheme: dark)").matches) {
+        document.documentElement.classList.add("dark");
+      }
+    } catch (_) {}
+  })();
+</script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@1.1.0/dist/basecoat.cdn.min.css"
+  integrity="sha384-pGk605ml41MkC5v6mwKQprSH7YgU5ZhqFrTH+liRoLfHsuOg7bGreN2+Dcb63/Ur" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/basecoat-css@1.1.0/dist/js/all.min.js"
+  integrity="sha384-5JGrgulX7bsJhcDzfGzGuSucYtpTu2CbgV4zYQaKB72zRNGABsHs2yeadK+XxOne" crossorigin="anonymous"></script>
 <style>
-:root{
-  --bg:#FFFFFF;--ink:#18181B;--ink2:#3F3F46;--muted:#52525B;--faint:#6B6F76;
-  --line:#E4E4E7;--hair:#F1F1F3;--hover:#FAFAFA;
-  --you:#C2410C;--act:#9A3412;--bad:#B42318;--toast:#18181B;--toast-ink:#FFFFFF;
-}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#121316;--ink:#ECECEF;--ink2:#C9CAD0;--muted:#A6A8B0;--faint:#8D9099;
-  --line:#2A2C31;--hair:#1F2125;--hover:#17181B;
-  --you:#F07A3E;--act:#F59E6B;--bad:#FF8A80;--toast:#ECECEF;--toast-ink:#121316;
-}}
-:root[data-theme="dark"]{
-  --bg:#121316;--ink:#ECECEF;--ink2:#C9CAD0;--muted:#A6A8B0;--faint:#8D9099;
-  --line:#2A2C31;--hair:#1F2125;--hover:#17181B;
-  --you:#F07A3E;--act:#F59E6B;--bad:#FF8A80;--toast:#ECECEF;--toast-ink:#121316;
-}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;font-size:13.5px}
-a{color:inherit;text-decoration:none}a:hover{text-decoration:underline}
-.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
-.wrap{max-width:1240px;margin:0 auto;padding:24px 16px 56px;display:flex;flex-direction:column;gap:22px}
-@media (min-width:700px){.wrap{padding:28px 24px 56px}}
-header{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px}
-h1{margin:0;font-size:18px;font-weight:600}
-.meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 18px;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;color:var(--faint)}
-.icon{min-height:32px;min-width:32px;border:1px solid var(--line);border-radius:6px;background:none;color:var(--muted);font:inherit;cursor:pointer}
-.err{color:var(--bad);font-size:13px}
-.cols{display:flex;flex-wrap:wrap;gap:24px 48px;align-items:flex-start}
-.col{flex:1 1 440px;min-width:0}
-.h{display:flex;align-items:baseline;gap:8px;padding-bottom:8px;font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--line)}
-.h .n{font-family:'IBM Plex Mono',ui-monospace,monospace;font-weight:500;letter-spacing:0}
-.h .n.you{color:var(--you)}
-.sub{padding:16px 0 4px;font-size:12px;font-weight:500;color:var(--muted)}
-.act{display:grid;grid-template-columns:minmax(0,1fr) 44px;column-gap:12px;padding:9px 0;border-bottom:1px solid var(--hair)}
-.act:hover,.it:hover{background:var(--hover)}
-.verb{display:inline;padding:0;border:0;background:none;font:inherit;font-size:14px;font-weight:600;color:var(--act);cursor:pointer;text-align:left}
-.verb:hover{text-decoration:underline}
-.line2{margin-top:2px;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.key{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;color:var(--ink2);margin-right:6px}
-.ttl{color:var(--ink)}
-.dim{color:var(--faint)}
-.bad{color:var(--bad)}
-.it{display:grid;grid-template-columns:78px minmax(0,1fr) 92px 44px;column-gap:10px;align-items:center;min-height:32px;padding:4px 0;border-bottom:1px solid var(--hair);font-size:13px}
-.it .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.it .w{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.age{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;color:var(--faint);text-align:right;align-self:center}
-.fold{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;margin-top:20px;padding:0;border:0;border-bottom:1px solid var(--line);background:none;font:inherit;font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);cursor:pointer;text-align:left}
-.fold .n{font-family:'IBM Plex Mono',ui-monospace,monospace;font-weight:500;letter-spacing:0}
-.empty{padding:12px 0;color:var(--faint);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px}
-.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--toast);color:var(--toast-ink);padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .15s;pointer-events:none}
-.toast.on{opacity:1}
-@media (max-width:520px){.it{grid-template-columns:72px minmax(0,1fr) 40px}.it .w{display:none}}
+  /* Layout and a few text treatments only; every component is Basecoat's,
+     and every color is a Basecoat token, so dark mode comes for free. */
+  body { background: var(--background); color: var(--foreground); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 24px 16px 56px; display: flex; flex-direction: column; gap: 20px; }
+  @media (min-width: 700px) { .wrap { padding: 28px 24px 56px; } }
+  .top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .top h1 { margin: 0; font-size: 18px; font-weight: 600; margin-right: auto; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .cols { display: flex; flex-wrap: wrap; gap: 28px 48px; align-items: flex-start; }
+  .col { flex: 1 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .heading { display: flex; align-items: center; gap: 8px; margin: 0; padding-bottom: 8px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); }
+  .sub { margin: 14px 0 0; font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
+  .mono, .key, .age { font-family: var(--font-mono, ui-monospace, monospace); }
+  .key { font-size: 12px; color: var(--muted-foreground); margin-right: 6px; }
+  .age { font-size: 12px; color: var(--muted-foreground); min-width: 36px; text-align: right; }
+  .item-group, .item { min-width: 0; }
+  .item { flex-wrap: nowrap; }
+  .item > section { flex: 1 1 0; min-width: 0; }
+  .item h3, .item p { display: block; min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #left .item p { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .item aside { flex: none; display: flex; align-items: center; gap: 8px; }
+  .facts { color: var(--muted-foreground); font-weight: 400; }
+  .bad { color: var(--destructive); }
+  .theme-light { display: none; }
+  .dark .theme-light { display: inline; }
+  .dark .theme-dark { display: none; }
+  .accordion summary { font-size: 13px; }
+  @media (max-width: 520px) { .item aside .badge { display: none; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
+  <header class="top">
     <h1>Inflight</h1>
-    <div style="flex:1 1 auto"></div>
     <div class="meta" id="meta"></div>
-    <button class="icon" id="refresh" type="button" aria-label="Refresh now">↻</button>
+    <button class="btn" data-variant="ghost" data-size="icon" id="theme" type="button" aria-label="Toggle dark mode">
+      <svg class="theme-dark" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+      <svg class="theme-light" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+    </button>
+    <button class="btn" data-variant="outline" data-size="icon" id="refresh" type="button" aria-label="Refresh now">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+    </button>
   </header>
   <div id="errors"></div>
   <div class="cols">
-    <section class="col" id="left"></section>
-    <section class="col" id="right"></section>
+    <section class="col" id="left" aria-label="Your move"></section>
+    <section class="col" id="right" aria-label="Waiting on others"></section>
   </div>
 </div>
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div id="toaster" class="toaster"></div>
 <script>
 // Waiting rows group under these headings, closest to shipping first.
 const STATUS_ORDER = ["READY TO MERGE", "In Testing", "Ready To Test", "In Code Review", "In Design Review", "In Progress", "TO DO"];
@@ -87,9 +83,10 @@ let data = null;
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const age = (ms) => ms == null ? "" : ms < 3.6e6 ? `${Math.max(1, Math.round(ms / 6e4))}m` : ms < 8.64e7 ? `${Math.round(ms / 3.6e6)}h` : `${Math.round(ms / 8.64e7)}d`;
-const ext = (href, inner, cls = "") => `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener">${inner}</a>`;
+const ext = (href, inner, cls = "") => `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+const badge = (text, variant = "secondary") => `<span class="badge" data-variant="${variant}">${esc(text)}</span>`;
 
-// Everything worth knowing about a row, as one muted line of text.
+// Everything worth knowing about a row, as one muted run of text.
 const facts = (r) => {
   const bits = [];
   for (const p of r.prs) {
@@ -98,50 +95,48 @@ const facts = (r) => {
     for (const c of p.chips) bits.push(`<span class="${c.tone === "bad" ? "bad" : ""}">${esc(c.text)}</span>`);
   }
   for (const c of r.chips) bits.push(`<span class="${c.tone === "bad" ? "bad" : ""}">${esc(c.text)}</span>`);
-  return bits.join(' <span class="dim">·</span> ');
+  return bits.join(" · ");
 };
 
-const verb = (r) => {
-  const n = r.next;
+// The next step: a skill command to copy, or the page where the step happens.
+const actionButton = (n) => {
   if (n.skill) {
     const cmd = `/${n.skill}${n.arg ? " " + n.arg : ""}`;
-    return `<button class="verb" type="button" data-copy="${esc(cmd)}" title="Copy ${esc(cmd)}">${esc(n.label)}</button>`;
+    return `<button class="btn mono" data-variant="outline" data-size="sm" type="button" data-copy="${esc(cmd)}" title="Copy ${esc(cmd)}">/${esc(n.skill)}</button>`;
   }
-  return ext(n.href, esc(n.label), "verb");
+  const where = n.href.includes("github.com") ? "GitHub" : n.href.includes("atlassian.net") ? "Jira" : "Open";
+  return ext(n.href, `${where} ↗`, "btn").replace('class="btn"', 'class="btn" data-variant="outline" data-size="sm"');
 };
 
-const actionRow = (r) => {
+const actionItem = (r) => {
   const f = facts(r);
-  return `<div class="act">
-    <div>
-      <div>${verb(r)}</div>
-      <div class="line2">${ext(r.url, esc(r.key), "key")}<span class="ttl">${esc(r.title)}</span>${f ? ` <span class="dim">·</span> ${f}` : ""}</div>
-    </div>
-    <span class="age">${age(r.ageMs)}</span>
-  </div>`;
+  return `<article class="item" data-size="sm" role="listitem">
+    <section>
+      <h3>${esc(r.next.label)}</h3>
+      <p>${ext(r.url, esc(r.key), "key")}${esc(r.title)}${f ? ` <span class="facts">· ${f}</span>` : ""}</p>
+    </section>
+    <aside><span class="age">${age(r.ageMs)}</span>${actionButton(r.next)}</aside>
+  </article>`;
 };
 
-const itemRow = (r) => {
+const waitingItem = (r) => {
   const f = facts(r);
-  return `<div class="it">
-    ${ext(r.url, esc(r.key), "key")}
-    <span class="t"><span class="ttl">${esc(r.title)}</span>${f ? ` <span class="dim">·</span> <span class="dim">${f}</span>` : ""}</span>
-    <span class="w">${esc(r.ball)}</span>
-    <span class="age">${age(r.ageMs)}</span>
-  </div>`;
+  return `<article class="item" data-size="xs" role="listitem">
+    <section><h3>${ext(r.url, esc(r.key), "key")}${esc(r.title)}${f ? ` <span class="facts">· ${f}</span>` : ""}</h3></section>
+    <aside>${r.ball ? badge(r.ball) : ""}<span class="age">${age(r.ageMs)}</span></aside>
+  </article>`;
 };
 
-const folder = (id, label, rows, render) => {
-  if (rows.length === 0) return "";
-  const shown = open.has(id);
-  return `<button class="fold" type="button" data-fold="${id}" aria-expanded="${shown}">${shown ? "▾" : "▸"} ${label} <span class="n">${rows.length}</span></button>${shown ? rows.map(render).join("") : ""}`;
-};
+const list = (items) => `<div class="item-group" role="list">${items.join("")}</div>`;
 
-const groupOf = (r) => {
-  if (r.group === "pod") return "Pod";
-  if (r.group === "loose") return "Other PRs";
-  return r.status || "Other";
-};
+const fold = (id, label, items) => items.length === 0 ? "" : `
+  <details data-fold="${id}" ${open.has(id) ? "open" : ""}>
+    <summary>${esc(label)} ${badge(String(items.length))}</summary>
+    <section>${list(items)}</section>
+  </details>`;
+
+const groupOf = (r) => r.group === "pod" ? "Pod" : r.group === "loose" ? "Other PRs" : r.status || "Other";
+const rank = (g) => { const i = STATUS_ORDER.findIndex((s) => s.toLowerCase() === g.toLowerCase()); return i === -1 ? 50 : i; };
 
 const render = () => {
   const rows = data.rows;
@@ -149,74 +144,77 @@ const render = () => {
   const mine = rows.filter((r) => r.yours && r.next && !parked(r));
   const waiting = rows.filter((r) => !parked(r) && !mine.includes(r));
   const ctx = data.context && !data.context.error ? data.context : null;
+  const rel = data.release;
 
-  let left = `<div class="h">Your move <span class="n you">${mine.length}</span></div>`;
-  left += mine.length ? mine.map(actionRow).join("") : `<div class="empty">0</div>`;
+  let left = `<h2 class="heading">Your move ${badge(String(mine.length), "primary")}</h2>${list(mine.map(actionItem))}`;
   if (ctx?.owed?.length) {
-    left += `<div class="sub">Owed · Slack and meetings</div>`;
-    left += ctx.owed.map((o) => `<div class="act"><div><div class="verb" style="cursor:default">${esc(o.what)}</div>
-      <div class="line2">${o.url ? ext(o.url, esc(o.who)) : esc(o.who)}</div></div><span class="age">${o.since ? age(Date.now() - new Date(o.since)) : ""}</span></div>`).join("");
+    left += `<h3 class="sub">Owed · Slack and meetings</h3>` + list(ctx.owed.map((o) => `<article class="item" data-size="sm" role="listitem">
+      <section><h3>${esc(o.what)}</h3><p>${o.url ? ext(o.url, esc(o.who)) : esc(o.who)}</p></section>
+      <aside><span class="age">${o.since ? age(Date.now() - new Date(o.since)) : ""}</span></aside></article>`));
   }
   document.getElementById("left").innerHTML = left;
 
+  let right = "";
+  if (ctx?.calendar?.length) {
+    right += `<h2 class="heading">Calendar</h2>` + list(ctx.calendar.map((e) => `<article class="item" data-size="xs" role="listitem">
+      <section><h3><span class="key">${esc(new Date(e.start).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }))}</span>${esc(e.title)}</h3></section>
+      <aside>${e.prep ? `<button class="btn mono" data-variant="outline" data-size="sm" type="button" data-copy="/${esc(e.prep)}">/${esc(e.prep)}</button>` : ""}</aside></article>`)) + `<div style="height:16px"></div>`;
+  }
   const groups = new Map();
   for (const r of waiting) {
     const g = groupOf(r);
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(r);
   }
-  const rank = (g) => { const i = STATUS_ORDER.findIndex((s) => s.toLowerCase() === g.toLowerCase()); return i === -1 ? 50 : i; };
-  let right = "";
-  if (ctx?.calendar?.length) {
-    right += `<div class="h">Calendar</div>` + ctx.calendar.map((e) => `<div class="it">
-      <span class="mono dim" style="font-size:12px">${esc(new Date(e.start).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }))}</span>
-      <span class="t">${esc(e.title)}${e.prep ? ` <span class="dim">·</span> <button class="verb" type="button" style="font-size:12.5px" data-copy="/${esc(e.prep)}">${esc(e.prep)}</button>` : ""}</span>
-      <span class="w"></span><span class="age"></span></div>`).join("") + `<div style="height:20px"></div>`;
-  }
-  right += `<div class="h">Waiting on others <span class="n">${waiting.length}</span></div>`;
+  right += `<h2 class="heading">Waiting on others ${badge(String(waiting.length))}</h2>`;
   for (const [g, rs] of [...groups].sort((a, b) => rank(a[0]) - rank(b[0]))) {
-    right += `<div class="sub">${esc(g)}</div>` + rs.map(itemRow).join("");
+    right += `<h3 class="sub">${esc(g)}</h3>${list(rs.map(waitingItem))}`;
   }
-  if (waiting.length === 0) right += `<div class="empty">0</div>`;
-  const rel = data.release;
-  if (rel?.unreleased?.length) {
-    right += folder("unreleased", `Unreleased since ${esc(rel.tag)}`, rel.unreleased, (u) => `<div class="it">
-      ${u.number ? ext(u.url, `#${u.number}`, "key") : '<span class="key"></span>'}
-      <span class="t">${esc(u.title)}</span><span class="w">${esc(u.author)}</span><span class="age">${age(Date.now() - new Date(u.mergedAt))}</span></div>`);
-  }
-  right += folder("shelf", "Shelf", rows.filter((r) => r.group === "shelf"), itemRow);
-  right += folder("later", "Later", rows.filter((r) => r.group === "later"), itemRow);
+  const unreleased = (rel?.unreleased ?? []).map((u) => `<article class="item" data-size="xs" role="listitem">
+    <section><h3>${u.number ? ext(u.url, `#${u.number}`, "key") : ""}${esc(u.title)}</h3></section>
+    <aside>${badge(u.author)}<span class="age">${age(Date.now() - new Date(u.mergedAt))}</span></aside></article>`);
+  const folds = [
+    fold("unreleased", `Unreleased since ${rel?.tag ?? ""}`, unreleased),
+    fold("shelf", "Shelf", rows.filter((r) => r.group === "shelf").map(waitingItem)),
+    fold("later", "Later", rows.filter((r) => r.group === "later").map(waitingItem)),
+  ].join("");
+  if (folds.trim()) right += `<section class="accordion" data-multiple style="margin-top:16px">${folds}</section>`;
   document.getElementById("right").innerHTML = right;
 
-  const bits = [age(Date.now() - new Date(data.fetchedAt))];
-  if (rel) bits.push(`${rel.tag} ${rel.aheadBy ? `· master +${rel.aheadBy}` : "· master even"}`);
-  if (rel?.inFlight) bits.push(`${rel.inFlight.version} next: ${rel.inFlight.nextGate ?? rel.inFlight.status}`);
-  if (data.sprint) bits.push(`${data.sprint.name} · ${data.sprint.done}/${data.sprint.total} pts`);
-  document.getElementById("meta").innerHTML = bits.map((b) => `<span>${esc(b)}</span>`).join("");
+  const meta = [];
+  if (rel) meta.push(badge(`${rel.tag} · ${rel.aheadBy ? `master +${rel.aheadBy}` : "master even"}`, "outline"));
+  if (rel?.inFlight) meta.push(badge(`${rel.inFlight.version} next: ${rel.inFlight.nextGate ?? rel.inFlight.status}`, "outline"));
+  if (data.sprint) meta.push(badge(`${data.sprint.name} · ${data.sprint.done}/${data.sprint.total} pts`, "outline"));
+  meta.push(`<span class="age" title="Last refreshed">${age(Date.now() - new Date(data.fetchedAt))}</span>`);
+  document.getElementById("meta").innerHTML = meta.join("");
 };
 
-const toast = (msg) => {
-  const t = document.getElementById("toast");
-  t.textContent = msg;
-  t.classList.add("on");
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.classList.remove("on"), 1400);
+const toast = (title, description) => {
+  const toaster = document.getElementById("toaster");
+  if (typeof toaster.toast === "function") toaster.toast({ category: "success", title, description, duration: 1800 });
 };
 
 document.addEventListener("click", async (e) => {
-  const fold = e.target.closest("[data-fold]");
-  if (fold) {
-    const id = fold.dataset.fold;
-    open.has(id) ? open.delete(id) : open.add(id);
-    store.set("inflight.open", JSON.stringify([...open]));
-    render();
-    return;
-  }
   const c = e.target.closest("[data-copy]");
-  if (c) {
-    try { await navigator.clipboard.writeText(c.dataset.copy); toast(`Copied ${c.dataset.copy}`); }
-    catch { toast(c.dataset.copy); }
-  }
+  if (!c) return;
+  try { await navigator.clipboard.writeText(c.dataset.copy); toast("Copied", c.dataset.copy); }
+  catch { toast("Copy this", c.dataset.copy); }
+});
+// Remember which folds are open across refreshes.
+document.addEventListener("toggle", (e) => {
+  const id = e.target.dataset?.fold;
+  if (!id) return;
+  e.target.open ? open.add(id) : open.delete(id);
+  store.set("inflight.open", JSON.stringify([...open]));
+}, true);
+
+document.getElementById("theme").addEventListener("click", () => {
+  if (window.basecoat?.theme) return window.basecoat.theme.toggle();
+  const dark = document.documentElement.classList.toggle("dark");
+  store.set("themeMode", dark ? "dark" : "light");
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+  if (store.get("themeMode", null) === null) document.documentElement.classList.toggle("dark", e.matches);
 });
 
 const load = async (fresh = false) => {
@@ -228,10 +226,10 @@ const load = async (fresh = false) => {
     if (!res.ok) throw new Error(body.error);
     data = body;
     const errs = (data.errors ?? []).concat(data.context?.error ? [data.context.error] : []);
-    document.getElementById("errors").innerHTML = errs.map((e) => `<div class="err">${esc(e)}</div>`).join("");
+    document.getElementById("errors").innerHTML = errs.map((m) => `<div class="alert" data-variant="destructive"><h2>${esc(m)}</h2></div>`).join("");
     render();
   } catch (err) {
-    document.getElementById("errors").innerHTML = `<div class="err">${esc(err.message)}</div>`;
+    document.getElementById("errors").innerHTML = `<div class="alert" data-variant="destructive"><h2>${esc(err.message)}</h2></div>`;
   } finally {
     btn.disabled = false;
   }
