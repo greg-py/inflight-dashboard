@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inflight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#FFFFFF;--ink:#18181B;--ink2:#3F3F46;--muted:#52525B;--faint:#6B6F76;
+  --line:#E4E4E7;--hair:#F1F1F3;--hover:#FAFAFA;
+  --you:#C2410C;--act:#9A3412;--bad:#B42318;--toast:#18181B;--toast-ink:#FFFFFF;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121316;--ink:#ECECEF;--ink2:#C9CAD0;--muted:#A6A8B0;--faint:#8D9099;
+  --line:#2A2C31;--hair:#1F2125;--hover:#17181B;
+  --you:#F07A3E;--act:#F59E6B;--bad:#FF8A80;--toast:#ECECEF;--toast-ink:#121316;
+}}
+:root[data-theme="dark"]{
+  --bg:#121316;--ink:#ECECEF;--ink2:#C9CAD0;--muted:#A6A8B0;--faint:#8D9099;
+  --line:#2A2C31;--hair:#1F2125;--hover:#17181B;
+  --you:#F07A3E;--act:#F59E6B;--bad:#FF8A80;--toast:#ECECEF;--toast-ink:#121316;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;font-size:13.5px}
+a{color:inherit;text-decoration:none}a:hover{text-decoration:underline}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.wrap{max-width:1240px;margin:0 auto;padding:24px 16px 56px;display:flex;flex-direction:column;gap:22px}
+@media (min-width:700px){.wrap{padding:28px 24px 56px}}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px}
+h1{margin:0;font-size:18px;font-weight:600}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 18px;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;color:var(--faint)}
+.icon{min-height:32px;min-width:32px;border:1px solid var(--line);border-radius:6px;background:none;color:var(--muted);font:inherit;cursor:pointer}
+.err{color:var(--bad);font-size:13px}
+.cols{display:flex;flex-wrap:wrap;gap:24px 48px;align-items:flex-start}
+.col{flex:1 1 440px;min-width:0}
+.h{display:flex;align-items:baseline;gap:8px;padding-bottom:8px;font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--line)}
+.h .n{font-family:'IBM Plex Mono',ui-monospace,monospace;font-weight:500;letter-spacing:0}
+.h .n.you{color:var(--you)}
+.sub{padding:16px 0 4px;font-size:12px;font-weight:500;color:var(--muted)}
+.act{display:grid;grid-template-columns:minmax(0,1fr) 44px;column-gap:12px;padding:9px 0;border-bottom:1px solid var(--hair)}
+.act:hover,.it:hover{background:var(--hover)}
+.verb{display:inline;padding:0;border:0;background:none;font:inherit;font-size:14px;font-weight:600;color:var(--act);cursor:pointer;text-align:left}
+.verb:hover{text-decoration:underline}
+.line2{margin-top:2px;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.key{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;color:var(--ink2);margin-right:6px}
+.ttl{color:var(--ink)}
+.dim{color:var(--faint)}
+.bad{color:var(--bad)}
+.it{display:grid;grid-template-columns:78px minmax(0,1fr) 92px 44px;column-gap:10px;align-items:center;min-height:32px;padding:4px 0;border-bottom:1px solid var(--hair);font-size:13px}
+.it .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.it .w{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.age{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px;color:var(--faint);text-align:right;align-self:center}
+.fold{display:flex;align-items:center;gap:8px;width:100%;min-height:40px;margin-top:20px;padding:0;border:0;border-bottom:1px solid var(--line);background:none;font:inherit;font-size:11.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);cursor:pointer;text-align:left}
+.fold .n{font-family:'IBM Plex Mono',ui-monospace,monospace;font-weight:500;letter-spacing:0}
+.empty{padding:12px 0;color:var(--faint);font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--toast);color:var(--toast-ink);padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .15s;pointer-events:none}
+.toast.on{opacity:1}
+@media (max-width:520px){.it{grid-template-columns:72px minmax(0,1fr) 40px}.it .w{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Inflight</h1>
+    <div style="flex:1 1 auto"></div>
+    <div class="meta" id="meta"></div>
+    <button class="icon" id="refresh" type="button" aria-label="Refresh now">↻</button>
+  </header>
+  <div id="errors"></div>
+  <div class="cols">
+    <section class="col" id="left"></section>
+    <section class="col" id="right"></section>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+// Waiting rows group under these headings, closest to shipping first.
+const STATUS_ORDER = ["READY TO MERGE", "In Testing", "Ready To Test", "In Code Review", "In Design Review", "In Progress", "TO DO"];
+const store = {
+  get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+const open = new Set(JSON.parse(store.get("inflight.open", "[]")));
+let data = null;
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const age = (ms) => ms == null ? "" : ms < 3.6e6 ? `${Math.max(1, Math.round(ms / 6e4))}m` : ms < 8.64e7 ? `${Math.round(ms / 3.6e6)}h` : `${Math.round(ms / 8.64e7)}d`;
+const ext = (href, inner, cls = "") => `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener">${inner}</a>`;
+
+// Everything worth knowing about a row, as one muted line of text.
+const facts = (r) => {
+  const bits = [];
+  for (const p of r.prs) {
+    const repo = p.repo && !p.repo.endsWith("/PerformYard") ? p.repo.split("/")[1] : "";
+    bits.push(ext(p.url, `${esc(repo)}#${p.number}`));
+    for (const c of p.chips) bits.push(`<span class="${c.tone === "bad" ? "bad" : ""}">${esc(c.text)}</span>`);
+  }
+  for (const c of r.chips) bits.push(`<span class="${c.tone === "bad" ? "bad" : ""}">${esc(c.text)}</span>`);
+  return bits.join(' <span class="dim">·</span> ');
+};
+
+const verb = (r) => {
+  const n = r.next;
+  if (n.skill) {
+    const cmd = `/${n.skill}${n.arg ? " " + n.arg : ""}`;
+    return `<button class="verb" type="button" data-copy="${esc(cmd)}" title="Copy ${esc(cmd)}">${esc(n.label)}</button>`;
+  }
+  return ext(n.href, esc(n.label), "verb");
+};
+
+const actionRow = (r) => {
+  const f = facts(r);
+  return `<div class="act">
+    <div>
+      <div>${verb(r)}</div>
+      <div class="line2">${ext(r.url, esc(r.key), "key")}<span class="ttl">${esc(r.title)}</span>${f ? ` <span class="dim">·</span> ${f}` : ""}</div>
+    </div>
+    <span class="age">${age(r.ageMs)}</span>
+  </div>`;
+};
+
+const itemRow = (r) => {
+  const f = facts(r);
+  return `<div class="it">
+    ${ext(r.url, esc(r.key), "key")}
+    <span class="t"><span class="ttl">${esc(r.title)}</span>${f ? ` <span class="dim">·</span> <span class="dim">${f}</span>` : ""}</span>
+    <span class="w">${esc(r.ball)}</span>
+    <span class="age">${age(r.ageMs)}</span>
+  </div>`;
+};
+
+const folder = (id, label, rows, render) => {
+  if (rows.length === 0) return "";
+  const shown = open.has(id);
+  return `<button class="fold" type="button" data-fold="${id}" aria-expanded="${shown}">${shown ? "▾" : "▸"} ${label} <span class="n">${rows.length}</span></button>${shown ? rows.map(render).join("") : ""}`;
+};
+
+const groupOf = (r) => {
+  if (r.group === "pod") return "Pod";
+  if (r.group === "loose") return "Other PRs";
+  return r.status || "Other";
+};
+
+const render = () => {
+  const rows = data.rows;
+  const parked = (r) => r.group === "shelf" || r.group === "later";
+  const mine = rows.filter((r) => r.yours && r.next && !parked(r));
+  const waiting = rows.filter((r) => !parked(r) && !mine.includes(r));
+  const ctx = data.context && !data.context.error ? data.context : null;
+
+  let left = `<div class="h">Your move <span class="n you">${mine.length}</span></div>`;
+  left += mine.length ? mine.map(actionRow).join("") : `<div class="empty">0</div>`;
+  if (ctx?.owed?.length) {
+    left += `<div class="sub">Owed · Slack and meetings</div>`;
+    left += ctx.owed.map((o) => `<div class="act"><div><div class="verb" style="cursor:default">${esc(o.what)}</div>
+      <div class="line2">${o.url ? ext(o.url, esc(o.who)) : esc(o.who)}</div></div><span class="age">${o.since ? age(Date.now() - new Date(o.since)) : ""}</span></div>`).join("");
+  }
+  document.getElementById("left").innerHTML = left;
+
+  const groups = new Map();
+  for (const r of waiting) {
+    const g = groupOf(r);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(r);
+  }
+  const rank = (g) => { const i = STATUS_ORDER.findIndex((s) => s.toLowerCase() === g.toLowerCase()); return i === -1 ? 50 : i; };
+  let right = "";
+  if (ctx?.calendar?.length) {
+    right += `<div class="h">Calendar</div>` + ctx.calendar.map((e) => `<div class="it">
+      <span class="mono dim" style="font-size:12px">${esc(new Date(e.start).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }))}</span>
+      <span class="t">${esc(e.title)}${e.prep ? ` <span class="dim">·</span> <button class="verb" type="button" style="font-size:12.5px" data-copy="/${esc(e.prep)}">${esc(e.prep)}</button>` : ""}</span>
+      <span class="w"></span><span class="age"></span></div>`).join("") + `<div style="height:20px"></div>`;
+  }
+  right += `<div class="h">Waiting on others <span class="n">${waiting.length}</span></div>`;
+  for (const [g, rs] of [...groups].sort((a, b) => rank(a[0]) - rank(b[0]))) {
+    right += `<div class="sub">${esc(g)}</div>` + rs.map(itemRow).join("");
+  }
+  if (waiting.length === 0) right += `<div class="empty">0</div>`;
+  const rel = data.release;
+  if (rel?.unreleased?.length) {
+    right += folder("unreleased", `Unreleased since ${esc(rel.tag)}`, rel.unreleased, (u) => `<div class="it">
+      ${u.number ? ext(u.url, `#${u.number}`, "key") : '<span class="key"></span>'}
+      <span class="t">${esc(u.title)}</span><span class="w">${esc(u.author)}</span><span class="age">${age(Date.now() - new Date(u.mergedAt))}</span></div>`);
+  }
+  right += folder("shelf", "Shelf", rows.filter((r) => r.group === "shelf"), itemRow);
+  right += folder("later", "Later", rows.filter((r) => r.group === "later"), itemRow);
+  document.getElementById("right").innerHTML = right;
+
+  const bits = [age(Date.now() - new Date(data.fetchedAt))];
+  if (rel) bits.push(`${rel.tag} ${rel.aheadBy ? `· master +${rel.aheadBy}` : "· master even"}`);
+  if (rel?.inFlight) bits.push(`${rel.inFlight.version} next: ${rel.inFlight.nextGate ?? rel.inFlight.status}`);
+  if (data.sprint) bits.push(`${data.sprint.name} · ${data.sprint.done}/${data.sprint.total} pts`);
+  document.getElementById("meta").innerHTML = bits.map((b) => `<span>${esc(b)}</span>`).join("");
+};
+
+const toast = (msg) => {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("on");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("on"), 1400);
+};
+
+document.addEventListener("click", async (e) => {
+  const fold = e.target.closest("[data-fold]");
+  if (fold) {
+    const id = fold.dataset.fold;
+    open.has(id) ? open.delete(id) : open.add(id);
+    store.set("inflight.open", JSON.stringify([...open]));
+    render();
+    return;
+  }
+  const c = e.target.closest("[data-copy]");
+  if (c) {
+    try { await navigator.clipboard.writeText(c.dataset.copy); toast(`Copied ${c.dataset.copy}`); }
+    catch { toast(c.dataset.copy); }
+  }
+});
+
+const load = async (fresh = false) => {
+  const btn = document.getElementById("refresh");
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/board${fresh ? "?fresh" : ""}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error);
+    data = body;
+    const errs = (data.errors ?? []).concat(data.context?.error ? [data.context.error] : []);
+    document.getElementById("errors").innerHTML = errs.map((e) => `<div class="err">${esc(e)}</div>`).join("");
+    render();
+  } catch (err) {
+    document.getElementById("errors").innerHTML = `<div class="err">${esc(err.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+};
+document.getElementById("refresh").addEventListener("click", () => load(true));
+setInterval(() => { if (!document.hidden) load(); }, 120_000);
+setInterval(() => { if (data) render(); }, 30_000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden && data && Date.now() - new Date(data.fetchedAt) > 120_000) load(); });
+load();
+</script>
+</body>
+</html>

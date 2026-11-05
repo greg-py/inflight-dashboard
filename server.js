@@ -1,48 +1,86 @@
-// Read-only in-flight dashboard server: fetches Jira/GitHub data and serves the UI.
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ROOT, CONFIG } from "./lib/config.js";
-import { buildItems, promptForShipping, routinePrompts } from "./lib/model.js";
-import { getUpstream } from "./lib/integrations.js";
+import { fetchJira } from "./lib/jira.js";
+import { fetchGithub } from "./lib/github.js";
+import { readReleaseInFlight, readContext } from "./lib/local.js";
+import { buildLedger, STAGES } from "./lib/ledger.js";
 
-const buildSnapshot = async () => {
-  const upstream = await getUpstream();
+const settle = async (name, fn, errors) => {
+  try {
+    return await fn();
+  } catch (err) {
+    errors.push(`${name}: ${err.message}`);
+    return null;
+  }
+};
+
+const snapshot = async () => {
+  const errors = [];
+  const [jira, github] = await Promise.all([settle("Jira", fetchJira, errors), settle("GitHub", fetchGithub, errors)]);
+  const now = new Date();
+  const rows = buildLedger({
+    me: { login: github?.login ?? "", accountId: jira?.me ?? "" },
+    tickets: jira?.tickets ?? [],
+    podTickets: jira?.podTickets ?? [],
+    groom: jira?.groom ?? [],
+    myPrs: github?.myPrs ?? [],
+    allPrs: github?.allPrs ?? [],
+    release: github?.release ?? null,
+    now,
+  });
   return {
-    fetchedAt: upstream.fetchedAt,
-    sources: upstream.sources,
-    items: buildItems(
-      upstream.jiraIssues,
-      upstream.github.mine,
-      upstream.github.merged,
-      upstream.leadIssues,
-    ),
-    reviewRequests: upstream.github.reviewRequests,
-    shipping: { ...upstream.shipping, action: promptForShipping(upstream.shipping) },
-    routines: routinePrompts(CONFIG.pod),
-    // Lets the board name a pull request's repo only when it is not this one.
-    primaryRepo: CONFIG.primaryRepo,
+    fetchedAt: now.toISOString(),
+    errors,
+    stages: STAGES,
+    rows,
+    sprint: jira?.sprint ?? null,
+    release: github?.release && {
+      tag: github.release.tag,
+      publishedAt: github.release.publishedAt,
+      draft: github.release.draft,
+      aheadBy: github.release.aheadBy,
+      unreleased: github.release.unreleased,
+      inFlight: readReleaseInFlight(),
+    },
+    context: readContext(),
+    jiraBaseUrl: CONFIG.jiraBaseUrl,
+    me: github?.login ?? "",
   };
 };
 
-const json = (res, code, body) => {
-  res.writeHead(code, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
+// Serve the last good snapshot instantly and refresh behind it, so the page
+// never waits on Jira and GitHub unless it asks to.
+let cache = null;
+let inflight = null;
+const refresh = () => (inflight ??= snapshot()
+  .then((data) => { cache = { at: Date.now(), data }; return data; })
+  .finally(() => { inflight = null; }));
+const board = async (fresh) => {
+  if (fresh || !cache) return refresh();
+  if (Date.now() - cache.at > CONFIG.cacheMs) refresh().catch(() => {});
+  return cache.data;
 };
 
 createServer(async (req, res) => {
+  const url = new URL(req.url, "http://localhost");
   try {
-    if (req.method === "GET" && req.url === "/api/data") {
-      json(res, 200, await buildSnapshot());
-    } else if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
+    if (url.pathname === "/api/board") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(await board(url.searchParams.has("fresh"))));
+    } else if (url.pathname === "/" || url.pathname === "/index.html") {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(readFileSync(join(ROOT, "index.html")));
+      res.end(readFileSync(join(ROOT, "public", "index.html")));
     } else {
-      json(res, 404, { error: "not found" });
+      res.writeHead(404).end();
     }
   } catch (err) {
-    json(res, 500, { error: err.message });
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: err.message }));
   }
 }).listen(CONFIG.port, "127.0.0.1", () => {
-  console.log(`inflight dashboard -> http://localhost:${CONFIG.port}`);
+  console.log(`ledger → http://localhost:${CONFIG.port}`);
+  refresh().catch((err) => console.error(err.message));
+  setInterval(() => refresh().catch((err) => console.error(err.message)), 2 * CONFIG.cacheMs);
 });
