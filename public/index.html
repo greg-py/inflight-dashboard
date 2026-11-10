@@ -39,11 +39,16 @@
   .item-group, .item { min-width: 0; }
   .item { flex-wrap: nowrap; }
   .item > section { flex: 1 1 0; min-width: 0; }
-  .item h3, .item p { display: block; min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #left .item p { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  /* A title is one line and may be cut, with its ticket link first so the cut
+     never reaches it. Facts wrap instead, so no PR link is ever pushed out. */
+  .item h3, .item .line { display: block; min-width: 0; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .facts { display: block; margin: 0; font-size: 12px; font-weight: 400; color: var(--muted-foreground); white-space: normal; overflow: visible; overflow-wrap: anywhere; -webkit-line-clamp: unset; }
+  .item section a { text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
+  .item section a:hover { text-decoration-color: currentColor; }
   .item aside { flex: none; display: flex; align-items: center; gap: 8px; }
-  .facts { color: var(--muted-foreground); font-weight: 400; }
+  .item aside .badge { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
   .bad { color: var(--destructive); }
+  .gap { margin-top: 16px; }
   .theme-light { display: none; }
   .dark .theme-light { display: inline; }
   .dark .theme-dark { display: none; }
@@ -81,49 +86,48 @@ let data = null;
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const age = (ms) => ms == null ? "" : ms < 3.6e6 ? `${Math.max(1, Math.round(ms / 6e4))}m` : ms < 8.64e7 ? `${Math.round(ms / 3.6e6)}h` : `${Math.round(ms / 8.64e7)}d`;
-const ext = (href, inner, cls = "") => `<a class="${cls}" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
-const badge = (text, variant = "secondary") => `<span class="badge" data-variant="${variant}">${esc(text)}</span>`;
+const ext = (href, inner, attrs = "") => `<a ${attrs} href="${esc(href)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
 
-// Everything worth knowing about a row, as one muted run of text.
+// Any ticket key or PR number in a piece of text becomes its link.
+const linked = (text, repo = data.links.repo) => {
+  const { project, ticket } = data.links;
+  return esc(text).replace(new RegExp(`\\b${project}-\\d+\\b|(?<!&)#\\d+`, "g"), (m) =>
+    ext(m[0] === "#" ? `https://github.com/${repo}/pull/${m.slice(1)}` : ticket + m, m));
+};
+const badge = (text, variant = "secondary") => `<span class="badge" data-variant="${variant}" title="${esc(text)}">${linked(text)}</span>`;
+const chip = (c, repo) => `<span class="${c.tone === "bad" ? "bad" : ""}">${linked(c.text, repo)}</span>`;
+
+// Everything worth knowing about a row: each PR, linked, then what is true of it.
 const facts = (r) => {
   const bits = [];
   for (const p of r.prs) {
-    const repo = p.repo && !p.repo.endsWith("/PerformYard") ? p.repo.split("/")[1] : "";
-    bits.push(ext(p.url, `${esc(repo)}#${p.number}`));
-    for (const c of p.chips) bits.push(`<span class="${c.tone === "bad" ? "bad" : ""}">${esc(c.text)}</span>`);
+    const repo = p.repo === data.links.repo ? "" : p.repo.split("/")[1];
+    bits.push(ext(p.url, `${esc(repo)}#${p.number}`), ...p.chips.map((c) => chip(c, p.repo)));
   }
-  for (const c of r.chips) bits.push(`<span class="${c.tone === "bad" ? "bad" : ""}">${esc(c.text)}</span>`);
-  return bits.join(" · ");
+  bits.push(...r.chips.map((c) => chip(c)));
+  return bits.length ? `<p class="facts">${bits.join(" · ")}</p>` : "";
 };
+const titleLine = (r, tag) =>
+  `<${tag} class="line" title="${esc(r.title)}">${ext(r.url, esc(r.key), 'class="key"')}${linked(r.title, r.prs[0]?.repo)}</${tag}>${facts(r)}`;
+const SMALL_BUTTON = 'class="btn mono" data-variant="outline" data-size="sm"';
+const copyButton = (cmd, label = cmd) => `<button ${SMALL_BUTTON} type="button" data-copy="${esc(cmd)}" title="Copy ${esc(cmd)}">${esc(label)}</button>`;
 
 // The next step: a skill command to copy, or the page where the step happens.
 const actionButton = (n) => {
-  if (n.skill) {
-    const cmd = `/${n.skill}${n.arg ? " " + n.arg : ""}`;
-    return `<button class="btn mono" data-variant="outline" data-size="sm" type="button" data-copy="${esc(cmd)}" title="Copy ${esc(cmd)}">/${esc(n.skill)}</button>`;
-  }
+  if (n.skill) return copyButton(`/${n.skill}${n.arg ? " " + n.arg : ""}`, `/${n.skill}`);
   const where = n.href.includes("github.com") ? "GitHub" : n.href.includes("atlassian.net") ? "Jira" : "Open";
-  return ext(n.href, `${where} ↗`, "btn").replace('class="btn"', 'class="btn" data-variant="outline" data-size="sm"');
+  return ext(n.href, `${where} ↗`, SMALL_BUTTON);
 };
 
-const actionItem = (r) => {
-  const f = facts(r);
-  return `<article class="item" data-size="sm" role="listitem">
-    <section>
-      <h3>${esc(r.next.label)}</h3>
-      <p>${ext(r.url, esc(r.key), "key")}${esc(r.title)}${f ? ` <span class="facts">· ${f}</span>` : ""}</p>
-    </section>
+const actionItem = (r) => `<article class="item" data-size="sm" role="listitem">
+    <section><h3 title="${esc(r.next.label)}">${esc(r.next.label)}</h3>${titleLine(r, "p")}</section>
     <aside><span class="age">${age(r.ageMs)}</span>${actionButton(r.next)}</aside>
   </article>`;
-};
 
-const waitingItem = (r) => {
-  const f = facts(r);
-  return `<article class="item" data-size="xs" role="listitem">
-    <section><h3>${ext(r.url, esc(r.key), "key")}${esc(r.title)}${f ? ` <span class="facts">· ${f}</span>` : ""}</h3></section>
+const waitingItem = (r) => `<article class="item" data-size="xs" role="listitem">
+    <section>${titleLine(r, "h3")}</section>
     <aside>${r.waitingOn ? badge(r.waitingOn) : ""}<span class="age">${age(r.ageMs)}</span></aside>
   </article>`;
-};
 
 const list = (items) => `<div class="item-group" role="list">${items.join("")}</div>`;
 
@@ -162,21 +166,21 @@ const render = () => {
   if (ctx?.calendar?.length) {
     right += `<h2 class="heading">Calendar</h2>` + list(ctx.calendar.map((e) => `<article class="item" data-size="xs" role="listitem">
       <section><h3><span class="key">${esc(new Date(e.start).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }))}</span>${esc(e.title)}</h3></section>
-      <aside>${e.prep ? `<button class="btn mono" data-variant="outline" data-size="sm" type="button" data-copy="/${esc(e.prep)}">/${esc(e.prep)}</button>` : ""}</aside></article>`)) + `<div style="height:16px"></div>`;
+      <aside>${e.prep ? copyButton(`/${e.prep}`) : ""}</aside></article>`)) + `<div class="gap"></div>`;
   }
   right += `<h2 class="heading">Waiting on others ${badge(String(waiting.length))}</h2>`;
   for (const [heading, rs] of byHeading(waiting)) {
     right += `<h3 class="sub">${esc(heading)}</h3>${list(rs.map(waitingItem))}`;
   }
   const unreleased = (rel?.unreleased ?? []).map((u) => `<article class="item" data-size="xs" role="listitem">
-    <section><h3>${u.number ? ext(u.url, `#${u.number}`, "key") : ""}${esc(u.title)}</h3></section>
+    <section><h3 class="line" title="${esc(u.title)}">${u.number ? ext(u.url, `#${u.number}`, 'class="key"') : ""}${linked(u.title)}</h3></section>
     <aside>${badge(u.author)}<span class="age">${age(Date.now() - new Date(u.mergedAt))}</span></aside></article>`);
   const folds = [
     fold("unreleased", `Unreleased since ${rel?.tag ?? ""}`, unreleased),
     fold("shelf", "Shelf", lane("shelf").map(waitingItem)),
     fold("later", "Later", lane("later").map(waitingItem)),
   ].join("");
-  if (folds.trim()) right += `<section class="accordion" data-multiple style="margin-top:16px">${folds}</section>`;
+  if (folds.trim()) right += `<section class="accordion gap" data-multiple>${folds}</section>`;
   document.getElementById("right").innerHTML = right;
 
   const meta = [];
@@ -185,6 +189,7 @@ const render = () => {
   if (data.sprint) meta.push(badge(`${data.sprint.name} · ${data.sprint.done}/${data.sprint.total} pts`, "outline"));
   meta.push(`<span class="age" title="Last refreshed">${age(Date.now() - new Date(data.fetchedAt))}</span>`);
   document.getElementById("meta").innerHTML = meta.join("");
+  document.title = mine.length ? `(${mine.length}) Inflight` : "Inflight";
 };
 
 const toast = (title, description) => {

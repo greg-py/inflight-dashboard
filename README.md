@@ -14,6 +14,9 @@ npm start      # http://localhost:4477 (PORT to override)
 npm test
 ```
 
+`npm start` restarts the server when a source file changes, so the page never
+shows the rules of an older version of the code.
+
 `.env` needs `JIRA_EMAIL` and `JIRA_API_TOKEN`. GitHub uses `gh auth token`
 unless `GITHUB_TOKEN` is set. No dependencies.
 
@@ -37,7 +40,7 @@ Markdown for agents: `https://basecoatui.com/components/<name>.md`.
 | Review | In Code Review | reviewer | engineering approval → move to Ready To Test; conflicts, red CI, changes requested, unanswered threads; nobody requested; reviewed and not re-requested; no review after 2 business days |
 | QA queue | Ready To Test | QA | the PR still lacks an engineering review |
 | Testing | In Testing | QA lead | a Bug Sub-task of yours is open on it |
-| Merge | READY TO MERGE | you | always, unless stacked on a parent not yet at Merge |
+| Merge | READY TO MERGE | you | always, unless any PR beneath it in the stack is not yet at Merge |
 
 **Engineering approval** is the latest APPROVED review from a member of the
 `engineering` team whose body carries no QA marker (`QA:OK`, `QA:APPROVED`,
@@ -62,8 +65,8 @@ parent's line as a count by status.
 
 ## Beyond your own tickets
 
-- **Reviews** — PRs requesting your review, and ones you asked changes on that have moved, are your move.
-- **Pod** — Street Sharks tickets in the open sprint with no assignee are yours to assign; approved-but-not-moved, READY TO MERGE for a day, or no reviewer list under Waiting, named for their owner.
+- **Reviews** — every open PR in the organization that you review has one row until you approve it. A PR requesting your review, by name or through a team you are on, is your move. So is one that moved after you requested changes, or after you commented on a PR that asked for your review. Until the author pushes, it lists under Waiting, named for the author. When the PR belongs to a ticket of yours, the ticket's row carries the review.
+- **Pod** — Street Sharks tickets in the open sprint with no assignee are yours to assign; approved-but-not-moved or READY TO MERGE for a day list under Waiting, named for their owner. A teammate's ticket is never your move once it has an assignee.
 - **Release** — you run releases, so anything merged since the latest tag is one Release move, naming which merges are yours; the commits fold under Unreleased.
 - **Grooming** — tickets you lead whose Engineering tab is empty, updated in the last 60 days.
 - **Shelf** — held work and drafts idle for 14 days.
@@ -87,9 +90,12 @@ These have no local credentials. Anything that writes
 - `lib/ledger.js` turns tickets and PRs into rows, one owner each. It is pure,
   and `test/ledger.test.js` pins every rule.
 - `lib/board.js` puts the sources and the ledger together into the page's data.
+  If Jira or GitHub fails, it keeps that source's last good answer and says so.
 - `server.js` serves the page and the board, answering from a warm cache.
 - `lib/config.js` holds every PerformYard-specific value.
 
 Each row the page receives is `{ key, title, url, status, lane, heading,
 waitingOn, next, prs, chips, ageMs }`: `lane` is `mine`, `waiting`, `shelf` or
-`later`; `next` is a skill to copy or a page to open.
+`later`; `next` is a skill to copy or a page to open. `url` opens the row's Jira ticket,
+or its pull request when it has no ticket. Every pull request is linked among
+the row's facts, and the page links every ticket key and PR number it shows.

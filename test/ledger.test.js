@@ -161,7 +161,7 @@ test("pod tickets show only when something is stuck, and say what", () => {
   assert.equal(classifyPodTicket(pod({ key: "PY-8", assignee: null, status: "TO DO", category: "new" }), [], ctx()).next.label, "Assign");
   const stuck = classifyPodTicket(pod({ key: "PY-9", status: "In Progress" }), [pr({ author: "jnguyencd", keys: ["PY-9"], engApprovals: approved })], ctx());
   assert.deepEqual([stuck.lane, stuck.waitingOn, stuck.chips[0].text], ["waiting", "James", "approved, still In Progress"]);
-  assert.equal(classifyPodTicket(pod({ key: "PY-6" }), [pr({ author: "mw", keys: ["PY-6"] })], ctx()).next.label, "Find reviewer");
+  assert.equal(classifyPodTicket(pod({ key: "PY-6" }), [pr({ author: "mw", keys: ["PY-6"] })], ctx()), null);
 });
 
 test("a review someone asked of you, or one you asked changes on that has moved", () => {
@@ -170,6 +170,47 @@ test("a review someone asked of you, or one you asked changes on that has moved"
   const quiet = pr({ number: 7, author: "aroffe-py", keys: ["PY-7"] });
   const rows = ledger({ otherPrs: [asked, moved, quiet] });
   assert.deepEqual(rows.map((r) => r.next.skill), ["deep-review", "verify-review"]);
+});
+
+test("changes you requested that the author has not answered wait on the author, never on a pod move", () => {
+  const mineToAnswer = pr({ number: 8, author: "aroffe-py", keys: ["PY-8"], changesRequested: [ME], myReview: { state: "CHANGES_REQUESTED", at: daysAgo(1) } });
+  const podTicket = ticket({ key: "PY-8", mine: false, assignee: "Ari Roffe" });
+  const rows = ledger({ podTickets: [podTicket], otherPrs: [mineToAnswer] });
+  assert.deepEqual(rows.map((r) => [r.key, r.lane, r.waitingOn]), [["PY-8", "waiting", "@aroffe-py"]]);
+});
+
+test("a review asked of your team, or left as comments on a PR that asked for yours, is still your review", () => {
+  const raw = (o) => ({
+    number: 1, title: "PY-1: x", url: "u", isDraft: false, state: "OPEN", createdAt: daysAgo(3), mergedAt: null,
+    mergeable: "MERGEABLE", baseRefName: "master", headRefName: "py-1", author: { login: "aroffe-py" },
+    repository: { nameWithOwner: "PerformYard/Logan", defaultBranchRef: { name: "main" } },
+    reviewRequests: { nodes: [] }, reviews: { nodes: [] }, timelineItems: { nodes: [] },
+    head: { nodes: [{ commit: { committedDate: daysAgo(3) } }] }, ...o,
+  });
+  const teams = { eng: new Set([ME]), qa: new Set(), mine: new Set(["engineering"]), login: ME };
+  const comment = { author: { __typename: "User", login: ME }, state: "COMMENTED", submittedAt: daysAgo(1), body: "" };
+  const event = { __typename: "ReviewRequestedEvent", createdAt: daysAgo(2), requestedReviewer: { login: ME } };
+
+  assert.equal(normalizePr(raw({ reviewRequests: { nodes: [{ requestedReviewer: { slug: "engineering" } }] } }), teams).askedMe, true);
+  assert.equal(normalizePr(raw({ reviews: { nodes: [comment] }, timelineItems: { nodes: [event] } }), teams).myReview.state, "COMMENTED");
+  assert.equal(normalizePr(raw({ reviews: { nodes: [comment] } }), teams).myReview, null);
+});
+
+test("a ticket of yours whose PR you are asked to review is one row, and the review is its move", () => {
+  const theirs = pr({ number: 9, author: "JustinCoker991", engApprovals: approved, requested: [ME] });
+  const rows = ledger({ tickets: [ticket({ status: "In Testing" })], otherPrs: [theirs] });
+  assert.deepEqual(rows.map((r) => [r.key, r.lane, r.heading, r.next.skill, r.waitingOn]), [["PY-1", "mine", "In Testing", "deep-review", null]]);
+});
+
+test("a stack merges only when every PR beneath it is at Merge", () => {
+  const tickets = [ticket({ key: "PY-2", status: "READY TO MERGE" }), ticket({ key: "PY-1", status: "READY TO MERGE" })];
+  const bottom = pr({ number: 1, keys: ["PY-1"], head: "py-1", base: "andy", engApprovals: approved, qaApproval: qaPassed });
+  const top = pr({ number: 2, keys: ["PY-2"], head: "py-2", base: "py-1", engApprovals: approved, qaApproval: qaPassed, parent: { number: 1, author: ME, keys: ["PY-1"] } });
+  const free = ledger({ tickets, myPrs: [bottom, top] }).find((r) => r.key === "PY-2");
+  assert.equal(free.next.label, "Merge stack from #2");
+  const onAndy = { ...bottom, parent: { number: 7865, author: "aboulle-py", keys: ["PY-9"] } };
+  const blocked = ledger({ tickets, myPrs: [onAndy, top] }).find((r) => r.key === "PY-2");
+  assert.deepEqual([blocked.lane, blocked.waitingOn], ["waiting", "@aboulle-py"]);
 });
 
 test("anything merged since the latest tag is one release, naming your merges", () => {
